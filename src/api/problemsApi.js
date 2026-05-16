@@ -57,6 +57,15 @@ const DEFAULT_STARTERS = {
   java: `import java.util.*;\nimport java.io.*;\n\npublic class Main {\n    public static void main(String[] args) throws IOException {\n        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));\n        // your code here\n    }\n}`,
   javascript: `const data = require('fs').readFileSync(0, 'utf8').trim();\n// your code here\nconsole.log(data);`,
   c: `#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n\nint main() {\n    // your code here\n    return 0;\n}`,
+  typescript: `// TypeScript on Judge0 compiles to JS, runs on Node.\nconst data: string = require('fs').readFileSync(0, 'utf8').trim();\n\n// your code here\nconsole.log(data);`,
+  go: `package main\n\nimport (\n    "bufio"\n    "fmt"\n    "os"\n)\n\nfunc main() {\n    reader := bufio.NewReader(os.Stdin)\n    _ = reader\n    _ = fmt.Println\n\n    // your code here\n}`,
+  rust: `use std::io::{self, Read};\n\nfn main() {\n    let mut input = String::new();\n    io::stdin().read_to_string(&mut input).unwrap();\n\n    // your code here\n    print!("{}", input.trim());\n}`,
+  php: `<?php\n$input = trim(stream_get_contents(STDIN));\n\n// your code here\necho $input;\n`,
+  ruby: `input = STDIN.read.strip\n\n# your code here\nputs input`,
+  dart: `import 'dart:io';\n\nvoid main() {\n  final input = stdin.readLineSync() ?? '';\n\n  // your code here\n  print(input);\n}`,
+  kotlin: `import java.io.BufferedReader\nimport java.io.InputStreamReader\n\nfun main() {\n    val br = BufferedReader(InputStreamReader(System.\`in\`))\n    val line = br.readLine() ?: ""\n\n    // your code here\n    println(line)\n}`,
+  swift: `import Foundation\n\nlet line = readLine() ?? ""\n\n// your code here\nprint(line)`,
+  csharp: `using System;\nclass Program {\n    static void Main() {\n        string input = Console.In.ReadToEnd().Trim();\n\n        // your code here\n        Console.WriteLine(input);\n    }\n}`,
 };
 
 // ---------- helpers ----------
