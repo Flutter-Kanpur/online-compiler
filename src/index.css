@@ -10,9 +10,9 @@
   --text-primary: #18181b;
   --text-secondary: #52525b;
   --text-muted: #a1a1aa;
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-soft: #eef2ff;
+  --accent: #0553b1;
+  --accent-hover: #044592;
+  --accent-soft: #e6f4fe;
 }
 
 * {
@@ -50,7 +50,7 @@ code, pre, .font-mono {
 }
 
 input:focus, textarea:focus, select:focus, button:focus-visible {
-  outline: 2px solid #4f46e5;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -68,16 +68,16 @@ button:disabled {
   gap: 0.5rem;
   padding: 0.5rem 1rem;
   border-radius: 0.5rem;
-  background: #4f46e5;
+  background: var(--accent);
   color: white;
   font-weight: 600;
   font-size: 0.875rem;
-  border: 1px solid #4f46e5;
+  border: 1px solid var(--accent);
   transition: all 0.15s ease;
 }
 .btn-primary:hover:not(:disabled) {
-  background: #4338ca;
-  border-color: #4338ca;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 .btn-primary:disabled {
   opacity: 0.5;

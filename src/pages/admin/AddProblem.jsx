@@ -1,5 +1,7 @@
 import React, { useState } from "react";
-import { Plus, Trash2, Save, AlertCircle, Check } from "lucide-react";
+import { Plus, Trash2, Save, AlertCircle, Check, Loader2 } from "lucide-react";
+import { useAuth } from "../../lib/auth.jsx";
+import { createProblem } from "../../lib/db.js";
 
 const LANGUAGES = [
   // Core
@@ -39,10 +41,12 @@ const DEFAULT_STARTER = {
 };
 
 export default function AddProblem({ onDone }) {
+  const { user } = useAuth();
   const [id, setId] = useState("");
   const [title, setTitle] = useState("");
   const [difficulty, setDifficulty] = useState("easy");
   const [tagsInput, setTagsInput] = useState("");
+  const [companiesInput, setCompaniesInput] = useState("");
   const [statement, setStatement] = useState("");
   const [examples, setExamples] = useState([{ input: "", output: "" }]);
   const [tests, setTests] = useState([{ input: "", expected: "" }]);
@@ -50,6 +54,7 @@ export default function AddProblem({ onDone }) {
   const [starter, setStarter] = useState(DEFAULT_STARTER);
   const [saved, setSaved] = useState(false);
   const [errors, setErrors] = useState([]);
+  const [saving, setSaving] = useState(false);
 
   function autoSlug(t) {
     return t.toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
@@ -69,13 +74,33 @@ export default function AddProblem({ onDone }) {
     return errs;
   }
 
-  function handleSave(e) {
+  async function handleSave(e) {
     e.preventDefault();
     const errs = validate();
     setErrors(errs);
     if (errs.length === 0) {
-      setSaved(true);
-      setTimeout(() => onDone && onDone(), 1200);
+      setSaving(true);
+      try {
+        await createProblem({
+          id: id.trim(),
+          title: title.trim(),
+          difficulty,
+          tags: tagsInput.split(",").map((t) => t.trim()).filter(Boolean),
+          companies: companiesInput.split(",").map((c) => c.trim()).filter(Boolean),
+          statement,
+          examples,
+          tests,
+          starter,
+        }, user.id);
+        setSaved(true);
+        setTimeout(() => onDone && onDone(), 1200);
+      } catch (err) {
+        setErrors([err.message.includes("duplicate key")
+          ? `A problem with id "${id}" already exists — pick a different id.`
+          : err.message]);
+      } finally {
+        setSaving(false);
+      }
     }
   }
 
@@ -89,7 +114,7 @@ export default function AddProblem({ onDone }) {
           </div>
           <div className="flex-1">
             <div className="text-sm font-semibold" style={{ color: "#047857" }}>Problem saved</div>
-            <div className="text-xs" style={{ color: "#065f46" }}>UI demo — nothing is persisted. Redirecting…</div>
+            <div className="text-xs" style={{ color: "#065f46" }}>Redirecting…</div>
           </div>
         </div>
       )}
@@ -152,6 +177,24 @@ export default function AddProblem({ onDone }) {
                   <span key={i} className="text-[11px] font-medium px-2 py-0.5 rounded-md"
                         style={{ background: "#f4f4f5", color: "var(--text-secondary)" }}>
                     {t}
+                  </span>
+                ))}
+              </div>
+            )}
+          </Field>
+          <Field label="Companies" hint="comma-separated, optional">
+            <input
+              value={companiesInput}
+              onChange={(e) => setCompaniesInput(e.target.value)}
+              placeholder="Amazon, Google, Flipkart"
+              className="input-field"
+            />
+            {companiesInput && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {companiesInput.split(",").map((c) => c.trim()).filter(Boolean).map((c, i) => (
+                  <span key={i} className="text-[11px] font-medium px-2 py-0.5 rounded-md"
+                        style={{ background: "#ede9fe", color: "#6d28d9" }}>
+                    {c}
                   </span>
                 ))}
               </div>
@@ -249,8 +292,8 @@ export default function AddProblem({ onDone }) {
         <button type="button" onClick={onDone} className="btn-secondary">
           Cancel
         </button>
-        <button type="submit" className="btn-primary">
-          <Save size={14} /> Save problem
+        <button type="submit" disabled={saving} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save problem
         </button>
       </div>
     </form>

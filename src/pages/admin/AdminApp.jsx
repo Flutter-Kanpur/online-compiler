@@ -1,12 +1,13 @@
 import React from "react";
 import {
   LayoutDashboard, FileText, Plus, Upload, ArrowLeft, Zap, Settings,
-  Users, Database,
+  Users, Database, Video,
 } from "lucide-react";
 import Dashboard from "./Dashboard.jsx";
 import ProblemsTable from "./ProblemsTable.jsx";
 import AddProblem from "./AddProblem.jsx";
 import BulkUpload from "./BulkUpload.jsx";
+import Interviews from "./Interviews.jsx";
 
 export default function AdminApp({ subview = "dashboard", onNavigate, onExit }) {
   return (
@@ -19,6 +20,7 @@ export default function AdminApp({ subview = "dashboard", onNavigate, onExit }) 
           {subview === "problems" && <ProblemsTable onNavigate={onNavigate} />}
           {subview === "add" && <AddProblem onDone={() => onNavigate("problems")} />}
           {subview === "bulk" && <BulkUpload onDone={() => onNavigate("problems")} />}
+          {subview === "interviews" && <Interviews />}
           {subview === "users" && <ComingSoon title="Users" description="User management is not part of this UI demo." />}
           {subview === "settings" && <ComingSoon title="Settings" description="Settings panel placeholder." />}
         </div>
@@ -40,13 +42,13 @@ function Sidebar({ current, onNavigate, onExit }) {
         <div
           className="w-8 h-8 rounded-lg flex items-center justify-center"
           style={{
-            background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
+            background: "linear-gradient(135deg, #13B9FD 0%, #0553B1 100%)",
           }}
         >
           <Zap size={18} color="white" strokeWidth={2.5} fill="white" />
         </div>
         <div>
-          <div className="text-sm font-bold leading-tight" style={{ color: "var(--text-primary)" }}>Spark</div>
+          <div className="text-sm font-bold leading-tight" style={{ color: "var(--text-primary)" }}>Flutter Kanpur</div>
           <div className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--accent)" }}>Admin</div>
         </div>
       </div>
@@ -82,6 +84,15 @@ function Sidebar({ current, onNavigate, onExit }) {
           onClick={() => onNavigate("bulk")}
         >
           Bulk upload
+        </SidebarLink>
+
+        <SidebarSection label="Interviews" />
+        <SidebarLink
+          icon={<Video size={16} />}
+          active={current === "interviews"}
+          onClick={() => onNavigate("interviews")}
+        >
+          Live interviews
         </SidebarLink>
 
         <SidebarSection label="Workspace" />
@@ -148,6 +159,7 @@ function TopBar({ subview }) {
     problems: { title: "Problems", crumb: "Content / Problems" },
     add: { title: "Add a problem", crumb: "Content / New problem" },
     bulk: { title: "Bulk upload", crumb: "Content / Bulk upload" },
+    interviews: { title: "Live interviews", crumb: "Interviews / Live interviews" },
     users: { title: "Users", crumb: "Workspace / Users" },
     settings: { title: "Settings", crumb: "Workspace / Settings" },
   };
@@ -173,7 +185,7 @@ function TopBar({ subview }) {
         <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md"
               style={{ background: "#f4f4f5" }}>
           <Database size={12} />
-          UI demo · no backend
+          {subview === "interviews" ? "Live interviews use the relay server" : "UI demo · no backend"}
         </span>
       </div>
     </header>

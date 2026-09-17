@@ -1,11 +1,10 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   MapPin, Calendar, Code2, Mail, Flame, Trophy, TrendingUp, Check, X,
-  Clock, AlertCircle, ChevronRight,
+  Clock, AlertCircle, ChevronRight, Loader2,
 } from "lucide-react";
-import {
-  MOCK_STATS, MOCK_SUBMISSIONS, MOCK_HEATMAP, formatRelativeTime,
-} from "../data/mockData.js";
+import { fetchUserStats } from "../lib/db.js";
+import { formatRelativeTime } from "../utils/time.js";
 
 function Avatar({ name, size = 32 }) {
   const initials = (name || "?").split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
@@ -24,12 +23,30 @@ function Avatar({ name, size = 32 }) {
   );
 }
 
-export default function Profile({ user, solvedCount, onOpenProblem, problems }) {
-  // Override solved count if user has actually solved something locally
-  const stats = {
-    ...MOCK_STATS,
-    solved: { ...MOCK_STATS.solved, total: Math.max(MOCK_STATS.solved.total, solvedCount) },
-  };
+export default function Profile({ user, userId, onOpenProblem, problems }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchUserStats(userId, problems)
+      .then((d) => { if (!cancelled) setData(d); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [userId, problems]);
+
+  if (loading || !data) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 gap-3">
+        <Loader2 size={24} className="animate-spin" style={{ color: "var(--accent)" }} />
+        <div className="text-sm" style={{ color: "var(--text-muted)" }}>Loading your stats…</div>
+      </div>
+    );
+  }
+
+  const { stats, recentSubmissions, heatmap } = data;
+  const lastSubmission = recentSubmissions[0] || null;
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-10">
@@ -65,9 +82,11 @@ export default function Profile({ user, solvedCount, onOpenProblem, problems }) 
             </div>
           </div>
           <div className="flex flex-col items-center gap-1 px-5 py-3 rounded-lg flex-shrink-0"
-               style={{ background: "var(--accent-soft)", border: "1px solid #c7d2fe" }}>
+               style={{ background: "var(--accent-soft)", border: "1px solid #9cd8fc" }}>
             <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--accent)" }}>Rank</div>
-            <div className="text-2xl font-bold" style={{ color: "var(--accent)" }}>#{stats.rank.toLocaleString()}</div>
+            <div className="text-2xl font-bold" style={{ color: "var(--accent)" }}>
+              {stats.rank ? `#${stats.rank.toLocaleString()}` : "—"}
+            </div>
           </div>
         </div>
       </div>
@@ -76,10 +95,10 @@ export default function Profile({ user, solvedCount, onOpenProblem, problems }) 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <StatCard
           icon={<Trophy size={18} />}
-          color="#4f46e5"
+          color="#0553B1"
           label="Solved"
           value={stats.solved.total}
-          sub={`of ${problems.length + 50}`}
+          sub={`of ${problems.length}`}
         />
         <StatCard
           icon={<TrendingUp size={18} />}
@@ -99,8 +118,8 @@ export default function Profile({ user, solvedCount, onOpenProblem, problems }) 
           icon={<Clock size={18} />}
           color="#6366f1"
           label="Last submission"
-          value={formatRelativeTime(MOCK_SUBMISSIONS[0].submittedAt)}
-          sub={MOCK_SUBMISSIONS[0].problemTitle}
+          value={lastSubmission ? formatRelativeTime(lastSubmission.submittedAt) : "—"}
+          sub={lastSubmission ? lastSubmission.problemTitle : "no submissions yet"}
         />
       </div>
 
@@ -109,9 +128,9 @@ export default function Profile({ user, solvedCount, onOpenProblem, problems }) 
         <div className="lg:col-span-1">
           <div className="card p-5">
             <div className="text-sm font-semibold mb-4" style={{ color: "var(--text-primary)" }}>By difficulty</div>
-            <DifficultyBar label="Easy" solved={stats.solved.easy} total={60} color="#10b981" />
-            <DifficultyBar label="Medium" solved={stats.solved.medium} total={45} color="#f59e0b" />
-            <DifficultyBar label="Hard" solved={stats.solved.hard} total={25} color="#ef4444" />
+            <DifficultyBar label="Easy" solved={stats.solved.starter + stats.solved.easy} total={stats.solvedTotals.starter + stats.solvedTotals.easy} color="#10b981" />
+            <DifficultyBar label="Medium" solved={stats.solved.medium} total={stats.solvedTotals.medium} color="#f59e0b" />
+            <DifficultyBar label="Hard" solved={stats.solved.hard} total={stats.solvedTotals.hard} color="#ef4444" />
           </div>
         </div>
 
@@ -122,7 +141,7 @@ export default function Profile({ user, solvedCount, onOpenProblem, problems }) 
               <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Submission activity</div>
               <div className="text-xs" style={{ color: "var(--text-muted)" }}>Last 90 days</div>
             </div>
-            <Heatmap data={MOCK_HEATMAP} />
+            <Heatmap data={heatmap} />
             <div className="flex items-center justify-end gap-2 mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
               <span>Less</span>
               {[0, 1, 2, 3, 4].map((l) => (
@@ -142,10 +161,15 @@ export default function Profile({ user, solvedCount, onOpenProblem, problems }) 
       <div className="card overflow-hidden">
         <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: "var(--border)" }}>
           <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Recent submissions</div>
-          <div className="text-xs" style={{ color: "var(--text-muted)" }}>{MOCK_SUBMISSIONS.length} recent</div>
+          <div className="text-xs" style={{ color: "var(--text-muted)" }}>{recentSubmissions.length} recent</div>
         </div>
+        {recentSubmissions.length === 0 ? (
+          <div className="px-5 py-10 text-center text-sm" style={{ color: "var(--text-muted)" }}>
+            No submissions yet — solve a problem to see it here.
+          </div>
+        ) : (
         <div className="divide-y" style={{ borderColor: "var(--border)" }}>
-          {MOCK_SUBMISSIONS.map((s) => {
+          {recentSubmissions.map((s) => {
             const found = problems.find((p) => p.id === s.problemId);
             return (
               <button
@@ -175,6 +199,7 @@ export default function Profile({ user, solvedCount, onOpenProblem, problems }) 
             );
           })}
         </div>
+        )}
       </div>
     </div>
   );
@@ -202,7 +227,7 @@ function StatCard({ icon, color, label, value, sub }) {
 }
 
 function DifficultyBar({ label, solved, total, color }) {
-  const pct = Math.min(100, (solved / total) * 100);
+  const pct = total > 0 ? Math.min(100, (solved / total) * 100) : 0;
   return (
     <div className="mb-3 last:mb-0">
       <div className="flex items-center justify-between mb-1.5 text-xs">
@@ -253,7 +278,7 @@ function Heatmap({ data }) {
 }
 
 function heatColor(level) {
-  return ["#f4f4f5", "#c7d2fe", "#a5b4fc", "#818cf8", "#4f46e5"][level] || "#f4f4f5";
+  return ["#f4f4f5", "#bfe4fe", "#7ecbfb", "#33a8f5", "#0553B1"][level] || "#f4f4f5";
 }
 
 function VerdictBadge({ verdict }) {

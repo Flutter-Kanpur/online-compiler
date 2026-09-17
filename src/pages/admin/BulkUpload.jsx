@@ -1,16 +1,21 @@
 import React, { useState, useRef } from "react";
 import {
   Upload, Download, FileSpreadsheet, X, AlertCircle, Check, Save,
-  FileText, Trash2, Eye, ChevronDown,
+  FileText, Trash2, Eye, ChevronDown, Loader2,
 } from "lucide-react";
 import { parseProblemsCSV, downloadSampleCSV, CSV_COLUMNS } from "../../utils/csv.js";
 import { DifficultyPill } from "../ProblemsList.jsx";
+import { useAuth } from "../../lib/auth.jsx";
+import { bulkUpsertProblems } from "../../lib/db.js";
 
 export default function BulkUpload({ onDone }) {
+  const { user } = useAuth();
   const [fileName, setFileName] = useState(null);
   const [parseResult, setParseResult] = useState(null); // { problems, errors }
   const [dragging, setDragging] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
   const [expandedRow, setExpandedRow] = useState(null);
   const inputRef = useRef(null);
 
@@ -39,9 +44,18 @@ export default function BulkUpload({ onDone }) {
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  function handleConfirm() {
-    setSaved(true);
-    setTimeout(() => onDone && onDone(), 1500);
+  async function handleConfirm() {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await bulkUpsertProblems(problems, user.id);
+      setSaved(true);
+      setTimeout(() => onDone && onDone(), 1500);
+    } catch (e) {
+      setSaveError(e.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   const problems = parseResult?.problems || [];
@@ -61,7 +75,7 @@ export default function BulkUpload({ onDone }) {
             <div className="text-sm font-semibold" style={{ color: "#047857" }}>
               {problems.length} problems imported
             </div>
-            <div className="text-xs" style={{ color: "#065f46" }}>UI demo — nothing is persisted. Redirecting…</div>
+            <div className="text-xs" style={{ color: "#065f46" }}>Redirecting…</div>
           </div>
         </div>
       )}
@@ -301,16 +315,25 @@ export default function BulkUpload({ onDone }) {
         </div>
       )}
 
+      {saveError && (
+        <div className="mb-5 rounded-lg p-4 flex items-start gap-3"
+             style={{ background: "#fef2f2", border: "1px solid #fecaca" }}>
+          <AlertCircle size={16} style={{ color: "#dc2626" }} className="flex-shrink-0 mt-0.5" />
+          <div className="text-sm" style={{ color: "#b91c1c" }}>Import failed: {saveError}</div>
+        </div>
+      )}
+
       {/* Footer */}
       {hasFile && (
         <div className="flex items-center justify-end gap-2 pt-2">
           <button onClick={reset} className="btn-secondary">Cancel</button>
           <button
             onClick={handleConfirm}
-            disabled={!canSave}
+            disabled={!canSave || saving}
             className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Save size={14} /> Import {problems.length} problem{problems.length === 1 ? "" : "s"}
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            Import {problems.length} problem{problems.length === 1 ? "" : "s"}
           </button>
         </div>
       )}

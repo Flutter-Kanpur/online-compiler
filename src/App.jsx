@@ -1,19 +1,75 @@
-import React, { useState, useEffect } from "react";
-import { Zap, User, Shield, LogOut, ChevronDown } from "lucide-react";
+import React, { useState, useEffect, useMemo } from "react";
+import { Zap, User, Shield, LogOut, ChevronDown, Loader2 } from "lucide-react";
 import { PROBLEMS as LOCAL_PROBLEMS } from "./problems.js";
 import { fetchProblemsSafe, DEFAULT_PAGE_SIZE } from "./api/problemsApi.js";
-import { MOCK_USER } from "./data/mockData.js";
+import { AuthProvider, useAuth } from "./lib/auth.jsx";
+import { fetchSolvedProblemIds, fetchCatalogFacets } from "./lib/db.js";
 
+import Auth from "./pages/Auth.jsx";
 import ProblemsList from "./pages/ProblemsList.jsx";
 import ProblemPage from "./pages/ProblemPage.jsx";
 import Profile from "./pages/Profile.jsx";
 import AdminApp from "./pages/admin/AdminApp.jsx";
+import InterviewCandidate from "./pages/interview/InterviewCandidate.jsx";
+import InterviewInterviewer from "./pages/interview/InterviewInterviewer.jsx";
+
+// A candidate/interviewer link (e.g. /interview/ab12cd34/candidate) opens
+// straight into that standalone view — no login, no Topbar, no normal app
+// state. There's no router library here, so this just reads the URL once
+// on load; these pages don't need in-app navigation.
+function parseInterviewRoute() {
+  if (typeof window === "undefined") return null;
+  const m = window.location.pathname.match(/^\/interview\/([^/]+)\/(candidate|interviewer)\/?$/);
+  return m ? { roomId: m[1], role: m[2] } : null;
+}
 
 export default function App() {
+  const interviewRoute = useMemo(parseInterviewRoute, []);
+  if (interviewRoute) {
+    return interviewRoute.role === "candidate"
+      ? <InterviewCandidate roomId={interviewRoute.roomId} />
+      : <InterviewInterviewer roomId={interviewRoute.roomId} />;
+  }
+  return (
+    <AuthProvider>
+      <AuthGate />
+    </AuthProvider>
+  );
+}
+
+function AuthGate() {
+  const { configured, loading, user } = useAuth();
+  if (configured && loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-app)" }}>
+        <Loader2 size={24} className="animate-spin" style={{ color: "var(--accent)" }} />
+      </div>
+    );
+  }
+  if (!user) return <Auth />;
+  return <MainApp />;
+}
+
+function MainApp() {
+  const { user, profile, isAdmin, signOut } = useAuth();
+  const uiUser = {
+    name: profile?.name || profile?.username || user.email,
+    username: profile?.username || "",
+    email: user.email,
+    bio: profile?.bio || "",
+    location: profile?.location || "",
+    github: profile?.github || "",
+    joinedAt: profile?.created_at || user.created_at,
+  };
+
   // view: { name: 'list' | 'problem' | 'profile' | 'admin', ... }
   const [view, setView] = useState({ name: "list" });
-  const [solved, setSolved] = useState(new Set(["hello-world", "sum-two", "even-odd"]));
+  const [solved, setSolved] = useState(new Set());
   const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    fetchSolvedProblemIds(user.id).then(setSolved).catch(() => {});
+  }, [user.id]);
 
   // ----- problem catalog -----
   const [problems, setProblems] = useState(LOCAL_PROBLEMS);
@@ -22,16 +78,23 @@ export default function App() {
   const [fetchError, setFetchError] = useState(null);
   const [page, setPage] = useState(1);
   const [totalRows, setTotalRows] = useState(0);
+  const [difficultyFilter, setDifficultyFilter] = useState("all");
+  const [companyFilter, setCompanyFilter] = useState("all");
+  const [facets, setFacets] = useState(null);
   const pageSize = DEFAULT_PAGE_SIZE;
   const totalPages = totalRows > 0 ? Math.max(1, Math.ceil(totalRows / pageSize)) : 1;
 
-  async function loadProblems(targetPage = 1) {
+  async function loadProblems(targetPage = 1, overrides = {}) {
     const safePage = Math.max(1, Math.floor(targetPage));
+    const difficulty = overrides.difficulty ?? difficultyFilter;
+    const company = overrides.company ?? companyFilter;
     setLoading(true);
     setFetchError(null);
     const offset = (safePage - 1) * pageSize;
-    const result = await fetchProblemsSafe({ limit: pageSize, offset });
-    if (result.ok && result.problems.length > 0) {
+    const result = await fetchProblemsSafe({ limit: pageSize, offset, difficulty, company });
+    const isUnfiltered = difficulty === "all" && company === "all";
+    const dbIsEmpty = isUnfiltered && result.ok && result.total === 0;
+    if (result.ok && !dbIsEmpty) {
       setProblems(result.problems);
       setProblemsSource("api");
       setTotalRows(result.total || 0);
@@ -47,7 +110,29 @@ export default function App() {
     setLoading(false);
   }
 
-  useEffect(() => { loadProblems(1); }, []);
+  function localFacets() {
+    const counts = { all: LOCAL_PROBLEMS.length, starter: 0, easy: 0, medium: 0, hard: 0 };
+    for (const p of LOCAL_PROBLEMS) if (p.difficulty in counts) counts[p.difficulty]++;
+    return { counts, companies: [] };
+  }
+
+  useEffect(() => {
+    loadProblems(1);
+    fetchCatalogFacets()
+      .then(setFacets)
+      .catch(() => setFacets(localFacets()));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleDifficultyChange(difficulty) {
+    setDifficultyFilter(difficulty);
+    loadProblems(1, { difficulty });
+  }
+
+  function handleCompanyChange(company) {
+    setCompanyFilter(company);
+    loadProblems(1, { company });
+  }
 
   function go(view) {
     setView(view);
@@ -62,18 +147,25 @@ export default function App() {
     });
   }
 
-  const isAdminView = view.name === "admin";
+  const isAdminView = view.name === "admin" && isAdmin;
+
+  async function handleSignOut() {
+    await signOut();
+    go({ name: "list" });
+  }
 
   return (
     <div className="min-h-screen" style={{ background: "var(--bg-app)" }}>
       {!isAdminView && (
         <Topbar
-          user={MOCK_USER}
+          user={uiUser}
+          isAdmin={isAdmin}
           menuOpen={menuOpen}
           setMenuOpen={setMenuOpen}
           onHome={() => go({ name: "list" })}
           onProfile={() => go({ name: "profile" })}
           onAdmin={() => go({ name: "admin", subview: "dashboard" })}
+          onSignOut={handleSignOut}
           currentView={view.name}
         />
       )}
@@ -92,6 +184,11 @@ export default function App() {
             totalRows={totalRows}
             pageSize={pageSize}
             onGoToPage={loadProblems}
+            facets={facets || { counts: { all: problems.length, starter: 0, easy: 0, medium: 0, hard: 0 }, companies: [] }}
+            difficultyFilter={difficultyFilter}
+            companyFilter={companyFilter}
+            onDifficultyChange={handleDifficultyChange}
+            onCompanyChange={handleCompanyChange}
           />
         )}
         {view.name === "problem" && (
@@ -103,13 +200,16 @@ export default function App() {
         )}
         {view.name === "profile" && (
           <Profile
-            user={MOCK_USER}
-            solvedCount={solved.size}
+            user={uiUser}
+            userId={user.id}
             onOpenProblem={(p) => go({ name: "problem", problem: p })}
             problems={problems}
           />
         )}
-        {view.name === "admin" && (
+        {view.name === "admin" && !isAdmin && (
+          <NotAdmin onBack={() => go({ name: "list" })} />
+        )}
+        {view.name === "admin" && isAdmin && (
           <AdminApp
             subview={view.subview}
             onNavigate={(sv) => go({ name: "admin", subview: sv })}
@@ -122,7 +222,7 @@ export default function App() {
         <footer className="mt-16 border-t" style={{ borderColor: "var(--border)" }}>
           <div className="max-w-7xl mx-auto px-6 py-6 flex flex-wrap items-center justify-between gap-3 text-xs"
                style={{ color: "var(--text-muted)" }}>
-            <div>© 2026 Spark · Online Compiler</div>
+            <div>© 2026 Flutter Kanpur · Online Compiler</div>
             <div>
               Powered by{" "}
               <a href="https://github.com/judge0/judge0" target="_blank" rel="noopener noreferrer"
@@ -137,10 +237,26 @@ export default function App() {
   );
 }
 
+function NotAdmin({ onBack }) {
+  return (
+    <div className="max-w-md mx-auto py-24 text-center px-4">
+      <Shield size={28} className="mx-auto mb-3" style={{ color: "var(--text-muted)" }} />
+      <div className="text-base font-semibold mb-2" style={{ color: "var(--text-primary)" }}>Admins only</div>
+      <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+        Your account doesn't have admin access. Ask an existing admin to promote you
+        (<code className="font-mono text-xs px-1 rounded" style={{ background: "#f4f4f5" }}>
+          update profiles set role = 'admin' where id = '...'
+        </code> in Supabase).
+      </p>
+      <button className="btn-secondary" onClick={onBack}>Back to problems</button>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 //  Topbar
 // ---------------------------------------------------------------------------
-function Topbar({ user, menuOpen, setMenuOpen, onHome, onProfile, onAdmin, currentView }) {
+function Topbar({ user, isAdmin, menuOpen, setMenuOpen, onHome, onProfile, onAdmin, onSignOut, currentView }) {
   return (
     <header
       className="sticky top-0 z-40 backdrop-blur-md"
@@ -155,14 +271,14 @@ function Topbar({ user, menuOpen, setMenuOpen, onHome, onProfile, onAdmin, curre
             <div
               className="w-8 h-8 rounded-lg flex items-center justify-center"
               style={{
-                background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
-                boxShadow: "0 2px 8px rgba(79,70,229,0.25)",
+                background: "linear-gradient(135deg, #13B9FD 0%, #0553B1 100%)",
+                boxShadow: "0 2px 8px rgba(5,83,177,0.25)",
               }}
             >
               <Zap size={18} color="white" strokeWidth={2.5} fill="white" />
             </div>
             <span className="text-lg font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
-              Spark
+              Flutter Kanpur
             </span>
           </button>
 
@@ -173,20 +289,22 @@ function Topbar({ user, menuOpen, setMenuOpen, onHome, onProfile, onAdmin, curre
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={onAdmin}
-            className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-            style={{
-              background: "var(--accent-soft)",
-              color: "var(--accent)",
-              border: "1px solid transparent",
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#c7d2fe")}
-            onMouseLeave={(e) => (e.currentTarget.style.borderColor = "transparent")}
-          >
-            <Shield size={14} strokeWidth={2.5} />
-            Admin
-          </button>
+          {isAdmin && (
+            <button
+              onClick={onAdmin}
+              className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+              style={{
+                background: "var(--accent-soft)",
+                color: "var(--accent)",
+                border: "1px solid transparent",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#c7d2fe")}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = "transparent")}
+            >
+              <Shield size={14} strokeWidth={2.5} />
+              Admin
+            </button>
+          )}
 
           <div className="relative">
             <button
@@ -216,9 +334,11 @@ function Topbar({ user, menuOpen, setMenuOpen, onHome, onProfile, onAdmin, curre
                     <div className="text-xs" style={{ color: "var(--text-muted)" }}>{user.email}</div>
                   </div>
                   <MenuItem icon={<User size={14} />} onClick={onProfile}>View profile</MenuItem>
-                  <MenuItem icon={<Shield size={14} />} onClick={onAdmin}>Admin panel</MenuItem>
+                  {isAdmin && (
+                    <MenuItem icon={<Shield size={14} />} onClick={onAdmin}>Admin panel</MenuItem>
+                  )}
                   <div className="my-1 border-t" style={{ borderColor: "var(--border)" }} />
-                  <MenuItem icon={<LogOut size={14} />} onClick={() => alert("Sign out (mock)")}>Sign out</MenuItem>
+                  <MenuItem icon={<LogOut size={14} />} onClick={onSignOut}>Sign out</MenuItem>
                 </div>
               </>
             )}

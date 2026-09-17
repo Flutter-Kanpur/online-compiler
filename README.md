@@ -1,42 +1,101 @@
-# spark — local setup
+# Flutter Kanpur — local setup
 
-A modern, playful DSA practice playground. Runs in your browser, executes code via the public Judge0 sandbox.
-
-**One file = the whole app**: `src/App.jsx` (UI) + `src/problems.js` (problems + tests).
+A DSA practice platform with real accounts, a real database, and real submission history — powered by
+Supabase (Postgres + auth) and the public Judge0 sandbox for code execution.
 
 ---
 
 ## Prerequisites
 
-You need **one** thing installed: **Node.js 18 or newer**.
-
-Check if you have it:
-
-```bash
-node --version
-```
-
-If you see something like `v18.x.x` or higher → you're good. If not, install from [nodejs.org](https://nodejs.org/) (just download the LTS installer for your OS).
-
-That's it. No other dependencies. No Python, no Docker, no database.
+- **Node.js 18 or newer** — check with `node --version`, install from [nodejs.org](https://nodejs.org/) if needed.
+- **A free [Supabase](https://supabase.com) account** — this is where users, problems, and submissions
+  actually live. Nothing works (sign-in, solving, admin) without it.
 
 ---
 
-## Run it locally (3 commands)
+## Run it locally
 
-Open a terminal in the project folder, then:
+### 1. Install dependencies
 
 ```bash
-# 1. Install dependencies (~30 seconds, ~100 MB on disk)
 npm install
-
-# 2. Start the dev server
-npm run dev
-
-# 3. Your browser will open automatically at http://localhost:5173
 ```
 
-That's literally it. The app will hot-reload as you edit files.
+### 2. Create a Supabase project
+
+At [supabase.com](https://supabase.com) → New project (free tier is plenty for this). Once it's ready:
+
+- **Project Settings → API** → copy the **Project URL** and the **anon public** key.
+- **SQL Editor** → paste the entire contents of [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) → Run.
+  This creates the `profiles` / `problems` / `submissions` / `solved_problems` tables, Row Level Security
+  policies, and a trigger that auto-creates a profile whenever someone signs up.
+- **Authentication → Providers** → email/password is on by default; to enable **Google sign-in**, turn on
+  the Google provider and add its client ID/secret (see Supabase's own Google-auth guide — it's a few
+  clicks in the Google Cloud console).
+
+### 3. Configure the app
+
+```bash
+cp .env.example .env
+```
+
+Fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from step 2.
+
+### 4. Seed the problem catalog (one-time)
+
+The 10 hand-written problems in `src/problems.js` aren't loaded automatically — load them into your new
+database once:
+
+```bash
+SUPABASE_URL=https://xxx.supabase.co \
+SUPABASE_SERVICE_ROLE_KEY=xxx \
+node scripts/seed-problems.mjs
+```
+
+(The **service_role** key, not the anon key — Project Settings → API. This only ever runs on your machine.)
+
+### 5. Start the app and become admin
+
+```bash
+npm run dev
+```
+
+Open `http://localhost:5173`, sign up for an account through the app's own sign-up form. Then, back in
+Supabase's SQL editor, promote yourself:
+
+```sql
+select id, username from public.profiles;              -- find your id
+update public.profiles set role = 'admin' where id = '<your-uuid>';
+```
+
+Reload the app — you now have the Admin panel (add/bulk-upload problems, create live interviews, see real
+stats).
+
+That's it — the app will hot-reload as you edit files. Without a Supabase project configured, the app shows
+a "Supabase isn't configured yet" screen instead of crashing, so you'll know immediately if a step was missed.
+
+---
+
+## Live interviews (DSA coding round)
+
+For running an actual interview, an organizer creates a room from **Admin → Live interviews**, picks 1–3
+problems, and gets two links: a **candidate link** (they solve, in their own browser) and an **interviewer
+link** (you watch their code and Run/Submit verdicts update live, no screen share needed).
+
+This needs the small relay server in `server/index.js` running alongside Vite — it's what keeps the
+candidate and interviewer tabs in sync over WebSocket. It holds rooms in memory only (nothing persists to
+disk; ending the app clears them), and it never executes candidate code itself — that still goes straight
+from the candidate's browser to Judge0, same as normal problem-solving.
+
+```bash
+# Runs the Vite dev server AND the relay server together
+npm run dev:all
+```
+
+(Or run them separately in two terminals: `npm run dev` and `npm run server`.)
+
+Candidate/interviewer links only work while both `npm run dev:all` (or the two separate processes) stay
+running — closing the terminal ends every open interview room.
 
 ---
 
@@ -78,7 +137,7 @@ docker compose up -d
 # Now Judge0 is running at http://your-machine:2358
 ```
 
-Then in **`src/App.jsx`**, change ONE line:
+Then in **`src/pages/ProblemPage.jsx`**, change ONE line:
 
 ```js
 const JUDGE0_URL = "http://your-machine:2358";
@@ -91,7 +150,7 @@ Restart `npm run dev` and you're now using your own private Judge0. Unlimited su
 ## Project structure
 
 ```
-spark/
+flutter-kanpur-compiler/
 ├── README.md                    ← you are here
 ├── package.json                 ← dependencies (Vite, React, Tailwind)
 ├── vite.config.js               ← dev server config
@@ -102,12 +161,23 @@ spark/
 │   └── favicon.svg              ← lightning bolt icon
 ├── src/
 │   ├── main.jsx                 ← React entry point
-│   ├── App.jsx                  ← MAIN APP (~1100 lines, the entire UI)
-│   ├── problems.js              ← THE PROBLEM CATALOG (edit to add more)
-│   └── index.css                ← Tailwind imports
+│   ├── App.jsx                  ← top-level routing + auth gate + shell
+│   ├── problems.js              ← offline fallback catalog (used if Supabase is unreachable)
+│   ├── index.css                ← Tailwind imports
+│   ├── lib/
+│   │   ├── supabaseClient.js     ← Supabase client + isSupabaseConfigured check
+│   │   ├── auth.jsx              ← AuthProvider / useAuth (sign in/up/out, profile, isAdmin)
+│   │   └── db.js                 ← every real query (problems, submissions, stats, admin)
+│   ├── interview/                ← candidate ⇄ interviewer WebSocket client
+│   └── pages/interview/          ← candidate + interviewer live-view pages
+├── supabase/
+│   └── migrations/0001_init.sql ← run this once in Supabase's SQL editor
+├── server/
+│   └── index.js                 ← relay server for live interviews (see below)
 ├── scripts/
-│   └── import-apps.py           ← Optional: import 50+ problems from APPS dataset
-└── data/                        ← (created when you run import-apps.py)
+│   ├── seed-problems.mjs        ← loads src/problems.js into your Supabase database
+│   └── import-apps.py           ← optional: import 50+ problems from the APPS dataset
+└── .env.example                 ← copy to .env, fill in your Supabase project's values
 ```
 
 ---
@@ -152,7 +222,7 @@ Save the file. The app hot-reloads automatically.
 
 ### Option B — Import 50+ problems from the APPS dataset
 
-[APPS](https://huggingface.co/datasets/codeparrot/apps) is an MIT-licensed dataset of 10,000 coding problems with full test cases. The included Python script downloads it and converts it into the spark format.
+[APPS](https://huggingface.co/datasets/codeparrot/apps) is an MIT-licensed dataset of 10,000 coding problems with full test cases. The included Python script downloads it and converts it into this app's problem format.
 
 **You need Python 3.8+** for this step:
 
@@ -164,20 +234,9 @@ pip install datasets
 python scripts/import-apps.py --difficulty introductory --limit 50 --output data/apps-problems.json
 ```
 
-Then in `src/App.jsx`, replace:
-
-```js
-import { PROBLEMS } from "./problems.js";
-```
-
-with:
-
-```js
-import problemsJson from "../data/apps-problems.json";
-const PROBLEMS = problemsJson;
-```
-
-Restart the dev server (`Ctrl+C` then `npm run dev`). You now have 50 real problems with real test cases.
+Then adapt `scripts/seed-problems.mjs` to read from `data/apps-problems.json` instead of `src/problems.js`
+and upsert those rows into Supabase — the live catalog is the `problems` table now, not the static file, so
+importing means writing to the database, not swapping a JS import.
 
 ---
 
@@ -212,9 +271,14 @@ Open browser DevTools (F12) → Console tab. Look for errors. Usually it's a COR
 
 ## What this is and isn't
 
-**Is**: A working playground. A starting point. A demo of the full flow (catalog → editor → judge → verdict). All real, no mocks.
+**Is**: A real platform — real accounts (email/password + Google), a real Postgres database, real
+persisted submissions and solved-state, real admin CRUD, and live interview rooms. Nothing left is mock data.
 
-**Isn't**: A production platform. There's no auth, no database, no progress persistence (refresh = lose your "solved" state). For production, see the larger `codepit-scaffold` project (Next.js + Supabase + Judge0 self-hosted).
+**Isn't**: Hardened for a large public launch. There's no rate limiting on submissions beyond what the
+public Judge0 instance already imposes, no email verification enforcement beyond Supabase's defaults, and
+the interview relay server keeps room state in memory only (see the "Live interviews" section above). Fine
+for running a club's practice problems and interview rounds; self-host Judge0 and review Supabase's
+production checklist before anything higher-stakes.
 
 ---
 

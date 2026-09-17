@@ -7,32 +7,25 @@ import {
 export default function ProblemsList({
   onOpen, solved, problems, loading, error, source,
   page, totalPages, totalRows, pageSize, onGoToPage,
+  facets, difficultyFilter, companyFilter, onDifficultyChange, onCompanyChange,
 }) {
-  const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const isApi = source === "api";
+  const counts = facets.counts;
+  const companies = facets.companies;
 
+  // Difficulty/company are applied server-side (so counts and pagination
+  // stay correct across the whole filtered set) — search stays client-side
+  // over just the current page.
   const filtered = useMemo(() => {
-    let xs = problems;
-    if (filter !== "all") xs = xs.filter((p) => p.difficulty === filter);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      xs = xs.filter(
-        (p) =>
-          p.title.toLowerCase().includes(q) ||
-          p.tags.some((t) => t.toLowerCase().includes(q))
-      );
-    }
-    return xs;
-  }, [problems, filter, search]);
-
-  const counts = useMemo(() => ({
-    all: problems.length,
-    starter: problems.filter((p) => p.difficulty === "starter").length,
-    easy: problems.filter((p) => p.difficulty === "easy").length,
-    medium: problems.filter((p) => p.difficulty === "medium").length,
-    hard: problems.filter((p) => p.difficulty === "hard").length,
-  }), [problems]);
+    if (!search.trim()) return problems;
+    const q = search.toLowerCase();
+    return problems.filter(
+      (p) =>
+        p.title.toLowerCase().includes(q) ||
+        p.tags.some((t) => t.toLowerCase().includes(q))
+    );
+  }, [problems, search]);
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-10">
@@ -43,15 +36,15 @@ export default function ProblemsList({
         <p className="mt-1.5 text-sm" style={{ color: "var(--text-secondary)" }}>
           {isApi
             ? `${totalRows.toLocaleString()} problems available. Real-time judging with Judge0 sandbox.`
-            : `${problems.length} problems in your local set. Real-time judging with Judge0 sandbox.`}
+            : `${problems.length} problems in the built-in set. Real-time judging with Judge0 sandbox.`}
         </p>
         <div className="mt-3 flex items-center gap-2 text-xs">
           <Badge
             color={isApi ? "emerald" : "amber"}
             dot
-            label={isApi ? "Live · HuggingFace APPS" : "Local fallback"}
+            label={isApi ? "Live · Supabase" : "Offline fallback (Supabase not configured)"}
           />
-          {error && <Badge color="red" label={`API error: ${error.slice(0, 50)}`} />}
+          {error && <Badge color="red" label={`Database error: ${error.slice(0, 50)}`} />}
         </div>
       </div>
 
@@ -80,12 +73,29 @@ export default function ProblemsList({
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           <Filter size={14} style={{ color: "var(--text-muted)" }} className="mr-1" />
-          <FilterPill active={filter === "all"} onClick={() => setFilter("all")} label="All" count={counts.all} />
-          <FilterPill active={filter === "starter"} onClick={() => setFilter("starter")} label="Starter" count={counts.starter} />
-          <FilterPill active={filter === "easy"} onClick={() => setFilter("easy")} label="Easy" count={counts.easy} color="emerald" />
-          <FilterPill active={filter === "medium"} onClick={() => setFilter("medium")} label="Medium" count={counts.medium} color="amber" />
+          <FilterPill active={difficultyFilter === "all"} onClick={() => onDifficultyChange("all")} label="All" count={counts.all} />
+          <FilterPill active={difficultyFilter === "starter"} onClick={() => onDifficultyChange("starter")} label="Starter" count={counts.starter} />
+          <FilterPill active={difficultyFilter === "easy"} onClick={() => onDifficultyChange("easy")} label="Easy" count={counts.easy} color="emerald" />
+          <FilterPill active={difficultyFilter === "medium"} onClick={() => onDifficultyChange("medium")} label="Medium" count={counts.medium} color="amber" />
           {counts.hard > 0 && (
-            <FilterPill active={filter === "hard"} onClick={() => setFilter("hard")} label="Hard" count={counts.hard} color="red" />
+            <FilterPill active={difficultyFilter === "hard"} onClick={() => onDifficultyChange("hard")} label="Hard" count={counts.hard} color="red" />
+          )}
+          {companies.length > 0 && (
+            <select
+              value={companyFilter}
+              onChange={(e) => onCompanyChange(e.target.value)}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer focus:outline-none"
+              style={{
+                background: companyFilter === "all" ? "white" : "var(--accent)",
+                color: companyFilter === "all" ? "var(--text-secondary)" : "white",
+                border: `1px solid ${companyFilter === "all" ? "var(--border)" : "var(--accent)"}`,
+              }}
+            >
+              <option value="all">All companies</option>
+              {companies.map((c) => (
+                <option key={c.name} value={c.name}>{c.name} ({c.count})</option>
+              ))}
+            </select>
           )}
         </div>
       </div>
@@ -150,8 +160,13 @@ export default function ProblemsList({
                       )}
                     </div>
                     <div className="flex flex-col gap-0.5 min-w-0">
-                      <div className="text-sm font-semibold capitalize truncate" style={{ color: "var(--text-primary)" }}>
-                        {p.title}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="text-sm font-semibold capitalize truncate" style={{ color: "var(--text-primary)" }}>
+                          {p.title}
+                        </div>
+                        {p.companies?.length > 0 && (
+                          <CompanyBadges companies={p.companies} />
+                        )}
                       </div>
                       <div className="md:hidden flex items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
                         <DifficultyPill difficulty={p.difficulty} small />
@@ -306,6 +321,28 @@ export function DifficultyPill({ difficulty, small }) {
     >
       {p.label}
     </span>
+  );
+}
+
+export function CompanyBadges({ companies, max = 2 }) {
+  if (!companies || companies.length === 0) return null;
+  const shown = companies.slice(0, max);
+  const extra = companies.length - shown.length;
+  return (
+    <div className="flex items-center gap-1 flex-shrink-0">
+      {shown.map((c) => (
+        <span
+          key={c}
+          className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+          style={{ background: "#ede9fe", color: "#6d28d9" }}
+        >
+          {c}
+        </span>
+      ))}
+      {extra > 0 && (
+        <span className="text-[10px] font-medium" style={{ color: "var(--text-muted)" }}>+{extra}</span>
+      )}
+    </div>
   );
 }
 

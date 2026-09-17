@@ -1,14 +1,33 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   FileText, Users, Activity, TrendingUp, Plus, Upload, Check, X, Clock,
-  UserPlus, FileUp, ArrowUpRight,
+  UserPlus, FileUp, ArrowUpRight, Loader2,
 } from "lucide-react";
-import {
-  MOCK_ADMIN_STATS, MOCK_RECENT_ACTIVITY, formatRelativeTime,
-} from "../../data/mockData.js";
+import { fetchAdminStats, fetchRecentActivity } from "../../lib/db.js";
+import { formatRelativeTime } from "../../utils/time.js";
 
 export default function Dashboard({ onNavigate }) {
-  const s = MOCK_ADMIN_STATS;
+  const [stats, setStats] = useState(null);
+  const [activity, setActivity] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([fetchAdminStats(), fetchRecentActivity()])
+      .then(([s, a]) => { if (!cancelled) { setStats(s); setActivity(a); } })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading || !stats) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <Loader2 size={24} className="animate-spin" style={{ color: "var(--accent)" }} />
+      </div>
+    );
+  }
+
+  const s = stats;
   return (
     <div className="max-w-6xl mx-auto fade-in">
       {/* Stat cards */}
@@ -53,7 +72,7 @@ export default function Dashboard({ onNavigate }) {
             <div className="space-y-2">
               <ActionCard
                 icon={<Plus size={16} />}
-                color="#4f46e5"
+                color="#0553B1"
                 title="Add a problem"
                 subtitle="Create a new problem manually."
                 onClick={() => onNavigate("add")}
@@ -80,8 +99,8 @@ export default function Dashboard({ onNavigate }) {
               Health
             </div>
             <HealthRow label="Judge0 sandbox" status="ok" detail="ce.judge0.com" />
-            <HealthRow label="Problems API" status="ok" detail="huggingface" />
-            <HealthRow label="Storage" status="warn" detail="UI demo only" />
+            <HealthRow label="Database" status="ok" detail="Supabase" />
+            <HealthRow label="Live interviews" status="ok" detail="relay server" />
           </div>
         </div>
 
@@ -90,13 +109,19 @@ export default function Dashboard({ onNavigate }) {
           <div className="card overflow-hidden">
             <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: "var(--border)" }}>
               <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Recent activity</div>
-              <div className="text-xs" style={{ color: "var(--text-muted)" }}>Mock feed</div>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>Live</div>
             </div>
+            {activity.length === 0 ? (
+              <div className="px-5 py-10 text-center text-sm" style={{ color: "var(--text-muted)" }}>
+                No activity yet.
+              </div>
+            ) : (
             <div className="divide-y" style={{ borderColor: "var(--border)" }}>
-              {MOCK_RECENT_ACTIVITY.map((a) => (
+              {activity.map((a) => (
                 <ActivityRow key={a.id} activity={a} />
               ))}
             </div>
+            )}
           </div>
         </div>
       </div>

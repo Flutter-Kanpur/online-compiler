@@ -3,7 +3,9 @@ import {
   Play, Send, Check, X, ArrowLeft, ExternalLink, Loader2,
   Terminal, FileText, ListChecks, ChevronDown,
 } from "lucide-react";
-import { DifficultyPill } from "./ProblemsList.jsx";
+import { DifficultyPill, CompanyBadges } from "./ProblemsList.jsx";
+import { useAuth } from "../lib/auth.jsx";
+import { insertSubmission, markSolved as markSolvedInDb } from "../lib/db.js";
 
 const JUDGE0_URL = "https://ce.judge0.com";
 
@@ -12,7 +14,7 @@ const JUDGE0_URL = "https://ce.judge0.com";
 //
 // Note: the public Judge0 CE instance is version-pinned. Newer languages
 // like Dart may not be available there — self-host Judge0 if you need them.
-const LANG = {
+export const LANG = {
   // Core
   python:     { id: 71, name: "python",     ext: "py",    display: "Python 3.8",     category: "Core" },
   cpp:        { id: 54, name: "c++",        ext: "cpp",   display: "C++ (GCC 9.2)",  category: "Core" },
@@ -53,18 +55,18 @@ const DEFAULT_STARTERS = {
   csharp: `using System;\nusing System.IO;\n\nclass Program {\n    static void Main() {\n        string input = Console.In.ReadToEnd().Trim();\n\n        // your code here\n        Console.WriteLine(input);\n    }\n}`,
 };
 
-function starterFor(problem, language) {
+export function starterFor(problem, language) {
   return problem.starter?.[language] ?? DEFAULT_STARTERS[language] ?? "// write your code here";
 }
 
 // Build {category: [lang_key, ...]} preserving insertion order.
-const LANG_BY_CATEGORY = Object.entries(LANG).reduce((acc, [key, val]) => {
+export const LANG_BY_CATEGORY = Object.entries(LANG).reduce((acc, [key, val]) => {
   if (!acc[val.category]) acc[val.category] = [];
   acc[val.category].push(key);
   return acc;
 }, {});
 
-async function judge0Run({ sourceCode, languageId, stdin, expectedOutput, cpuTimeLimit = 2 }) {
+export async function judge0Run({ sourceCode, languageId, stdin, expectedOutput, cpuTimeLimit = 2 }) {
   const createRes = await fetch(`${JUDGE0_URL}/submissions?base64_encoded=false&wait=false`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -88,7 +90,7 @@ async function judge0Run({ sourceCode, languageId, stdin, expectedOutput, cpuTim
   throw new Error("timeout — judge0 took too long");
 }
 
-function classifyVerdict(j0Status, expected, stdout) {
+export function classifyVerdict(j0Status, expected, stdout) {
   if (!j0Status) return "RE";
   const id = j0Status.id;
   if (id === 3) {
@@ -107,6 +109,7 @@ function classifyVerdict(j0Status, expected, stdout) {
 }
 
 export default function ProblemPage({ problem, onBack, onSolved }) {
+  const { user } = useAuth();
   const [language, setLanguage] = useState("python");
   const [code, setCode] = useState(starterFor(problem, "python"));
   const [running, setRunning] = useState(false);
@@ -171,11 +174,22 @@ export default function ProblemPage({ problem, onBack, onSolved }) {
         else { firstFailIndex = i; break; }
       }
       const allPassed = passed === problem.tests.length;
+      const verdict = allPassed ? "AC" : allResults[firstFailIndex]?.verdict || "WA";
+
+      if (user) {
+        insertSubmission({
+          userId: user.id, problemId: problem.id, kind: "submit", language, code,
+          verdict, passed, total: problem.tests.length, timeMs: maxTime * 1000, memoryKb: maxMem,
+        }).catch(() => {});
+        if (allPassed) {
+          markSolvedInDb(user.id, problem.id).catch(() => {});
+        }
+      }
       if (allPassed) onSolved(problem.id);
+
       setResults({
         kind: "submit", tests: allResults, passed, total: problem.tests.length,
-        verdict: allPassed ? "AC" : allResults[firstFailIndex]?.verdict || "WA",
-        time: maxTime, memory: maxMem,
+        verdict, time: maxTime, memory: maxMem,
       });
     } catch (e) {
       setResults({ kind: "error", message: e.message });
@@ -366,7 +380,7 @@ export default function ProblemPage({ problem, onBack, onSolved }) {
   );
 }
 
-function Tab({ icon, label, active, onClick, badge }) {
+export function Tab({ icon, label, active, onClick, badge }) {
   return (
     <button
       onClick={onClick}
@@ -388,7 +402,7 @@ function Tab({ icon, label, active, onClick, badge }) {
   );
 }
 
-function ProblemDescription({ problem }) {
+export function ProblemDescription({ problem }) {
   return (
     <div>
       <div className="flex items-center gap-3 flex-wrap mb-3">
@@ -396,6 +410,7 @@ function ProblemDescription({ problem }) {
           {problem.title}
         </h2>
         <DifficultyPill difficulty={problem.difficulty} />
+        {problem.companies?.length > 0 && <CompanyBadges companies={problem.companies} max={6} />}
       </div>
       {problem.sourceUrl && (
         <a
@@ -461,11 +476,12 @@ function ProblemDescription({ problem }) {
   );
 }
 
-function CodeArea({ code, setCode }) {
+export function CodeArea({ code, setCode, readOnly = false }) {
   const taRef = useRef(null);
   const lineCount = code.split("\n").length;
 
   function handleKeyDown(e) {
+    if (readOnly) return;
     if (e.key === "Tab") {
       e.preventDefault();
       const ta = taRef.current;
@@ -494,22 +510,24 @@ function CodeArea({ code, setCode }) {
       <textarea
         ref={taRef}
         value={code}
-        onChange={(e) => setCode(e.target.value)}
+        onChange={(e) => !readOnly && setCode(e.target.value)}
         onKeyDown={handleKeyDown}
+        readOnly={readOnly}
         spellCheck={false}
         className="flex-1 bg-transparent p-3 resize-none focus:outline-none font-mono"
         style={{
           fontSize: "13px",
           lineHeight: "1.65",
           color: "#e2e8f0",
-          caretColor: "#6366f1",
+          caretColor: readOnly ? "transparent" : "#6366f1",
+          cursor: readOnly ? "default" : "text",
         }}
       />
     </div>
   );
 }
 
-function ResultsView({ results, running }) {
+export function ResultsView({ results, running }) {
   if (running) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-3">

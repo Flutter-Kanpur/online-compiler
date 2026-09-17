@@ -295,7 +295,7 @@ export function downloadSampleCSV() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "spark-problems-sample.csv";
+  a.download = "flutterkanpur-problems-sample.csv";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
