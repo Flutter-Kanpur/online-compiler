@@ -48,7 +48,7 @@ function Sidebar({ current, onNavigate, onExit }) {
           <Zap size={18} color="white" strokeWidth={2.5} fill="white" />
         </div>
         <div>
-          <div className="text-sm font-bold leading-tight" style={{ color: "var(--text-primary)" }}>Flutter Kanpur</div>
+          <div className="text-sm font-bold leading-tight" style={{ color: "var(--text-primary)" }}>Sparx</div>
           <div className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--accent)" }}>Admin</div>
         </div>
       </div>

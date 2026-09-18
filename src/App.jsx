@@ -222,7 +222,7 @@ function MainApp() {
         <footer className="mt-16 border-t" style={{ borderColor: "var(--border)" }}>
           <div className="max-w-7xl mx-auto px-6 py-6 flex flex-wrap items-center justify-between gap-3 text-xs"
                style={{ color: "var(--text-muted)" }}>
-            <div>© 2026 Flutter Kanpur · Online Compiler</div>
+            <div>© 2026 Sparx · Online Compiler</div>
             <div>
               Powered by{" "}
               <a href="https://github.com/judge0/judge0" target="_blank" rel="noopener noreferrer"
@@ -277,8 +277,16 @@ function Topbar({ user, isAdmin, menuOpen, setMenuOpen, onHome, onProfile, onAdm
             >
               <Zap size={18} color="white" strokeWidth={2.5} fill="white" />
             </div>
-            <span className="text-lg font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
-              Flutter Kanpur
+            <span className="flex items-baseline gap-1.5">
+              <span className="text-lg font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
+                Sparx
+              </span>
+              <span
+                className="hidden sm:inline"
+                style={{ color: "var(--accent)", fontFamily: "'Dancing Script', cursive", fontSize: "15px", fontWeight: 700 }}
+              >
+                by Flutter Kanpur
+              </span>
             </span>
           </button>
 

@@ -1,7 +1,7 @@
-# Flutter Kanpur — local setup
+# Sparx — local setup
 
-A DSA practice platform with real accounts, a real database, and real submission history — powered by
-Supabase (Postgres + auth) and the public Judge0 sandbox for code execution.
+Sparx, by Flutter Kanpur — a DSA practice platform with real accounts, a real database, and real submission
+history — powered by Supabase (Postgres + auth) and the public Judge0 sandbox for code execution.
 
 ---
 
