@@ -1,13 +1,14 @@
 import React from "react";
 import {
   LayoutDashboard, FileText, Plus, Upload, ArrowLeft, Zap, Settings,
-  Users, Database, Video,
+  Users, Database, Video, Trophy,
 } from "lucide-react";
 import Dashboard from "./Dashboard.jsx";
 import ProblemsTable from "./ProblemsTable.jsx";
 import AddProblem from "./AddProblem.jsx";
 import BulkUpload from "./BulkUpload.jsx";
 import Interviews from "./Interviews.jsx";
+import Contests from "./Contests.jsx";
 
 export default function AdminApp({ subview = "dashboard", onNavigate, onExit }) {
   return (
@@ -21,6 +22,7 @@ export default function AdminApp({ subview = "dashboard", onNavigate, onExit }) 
           {subview === "add" && <AddProblem onDone={() => onNavigate("problems")} />}
           {subview === "bulk" && <BulkUpload onDone={() => onNavigate("problems")} />}
           {subview === "interviews" && <Interviews />}
+          {subview === "contests" && <Contests />}
           {subview === "users" && <ComingSoon title="Users" description="User management is not part of this UI demo." />}
           {subview === "settings" && <ComingSoon title="Settings" description="Settings panel placeholder." />}
         </div>
@@ -95,6 +97,15 @@ function Sidebar({ current, onNavigate, onExit }) {
           Live interviews
         </SidebarLink>
 
+        <SidebarSection label="Contests" />
+        <SidebarLink
+          icon={<Trophy size={16} />}
+          active={current === "contests"}
+          onClick={() => onNavigate("contests")}
+        >
+          Weekly contests
+        </SidebarLink>
+
         <SidebarSection label="Workspace" />
         <SidebarLink
           icon={<Users size={16} />}
@@ -160,6 +171,7 @@ function TopBar({ subview }) {
     add: { title: "Add a problem", crumb: "Content / New problem" },
     bulk: { title: "Bulk upload", crumb: "Content / Bulk upload" },
     interviews: { title: "Live interviews", crumb: "Interviews / Live interviews" },
+    contests: { title: "Weekly contests", crumb: "Contests / Weekly contests" },
     users: { title: "Users", crumb: "Workspace / Users" },
     settings: { title: "Settings", crumb: "Workspace / Settings" },
   };

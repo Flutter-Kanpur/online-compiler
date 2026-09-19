@@ -1,11 +1,13 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Search, ChevronRight, Check, CircleDot, ChevronLeft,
-  ChevronsLeft, ChevronsRight, Loader2, Filter, X,
+  ChevronsLeft, ChevronsRight, Loader2, Filter, X, Trophy,
 } from "lucide-react";
+import { fetchContests, contestStatus } from "../lib/contestsApi.js";
+import { useCountdown } from "../hooks/useCountdown.js";
 
 export default function ProblemsList({
-  onOpen, solved, problems, loading, error, source,
+  onOpen, onOpenContests, solved, problems, loading, error, source,
   page, totalPages, totalRows, pageSize, onGoToPage,
   facets, difficultyFilter, companyFilter, onDifficultyChange, onCompanyChange,
 }) {
@@ -48,57 +50,61 @@ export default function ProblemsList({
         </div>
       </div>
 
-      {/* Toolbar */}
-      <div className="card p-4 mb-5 flex flex-col md:flex-row md:items-center gap-3">
-        <div className="relative flex-1">
-          <Search
-            size={16}
-            className="absolute left-3 top-1/2 -translate-y-1/2"
-            style={{ color: "var(--text-muted)" }}
-          />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search problems by title or tag…"
-            className="input-field pl-9"
-          />
-          {search && (
-            <button
-              onClick={() => setSearch("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-zinc-100"
-            >
-              <X size={14} style={{ color: "var(--text-muted)" }} />
-            </button>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <Filter size={14} style={{ color: "var(--text-muted)" }} className="mr-1" />
-          <FilterPill active={difficultyFilter === "all"} onClick={() => onDifficultyChange("all")} label="All" count={counts.all} />
-          <FilterPill active={difficultyFilter === "starter"} onClick={() => onDifficultyChange("starter")} label="Starter" count={counts.starter} />
-          <FilterPill active={difficultyFilter === "easy"} onClick={() => onDifficultyChange("easy")} label="Easy" count={counts.easy} color="emerald" />
-          <FilterPill active={difficultyFilter === "medium"} onClick={() => onDifficultyChange("medium")} label="Medium" count={counts.medium} color="amber" />
-          {counts.hard > 0 && (
-            <FilterPill active={difficultyFilter === "hard"} onClick={() => onDifficultyChange("hard")} label="Hard" count={counts.hard} color="red" />
-          )}
-          {companies.length > 0 && (
-            <select
-              value={companyFilter}
-              onChange={(e) => onCompanyChange(e.target.value)}
-              className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer focus:outline-none"
-              style={{
-                background: companyFilter === "all" ? "white" : "var(--accent)",
-                color: companyFilter === "all" ? "var(--text-secondary)" : "white",
-                border: `1px solid ${companyFilter === "all" ? "var(--border)" : "var(--accent)"}`,
-              }}
-            >
-              <option value="all">All companies</option>
-              {companies.map((c) => (
-                <option key={c.name} value={c.name}>{c.name} ({c.count})</option>
-              ))}
-            </select>
-          )}
-        </div>
-      </div>
+      <BannerRow onOpenContests={onOpenContests} />
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6 items-start">
+        <div className="min-w-0">
+          {/* Toolbar */}
+          <div className="card p-4 mb-5 flex flex-col md:flex-row md:items-center gap-3">
+            <div className="relative flex-1">
+              <Search
+                size={16}
+                className="absolute left-3 top-1/2 -translate-y-1/2"
+                style={{ color: "var(--text-muted)" }}
+              />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search problems by title or tag…"
+                className="input-field pl-9"
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-zinc-100"
+                >
+                  <X size={14} style={{ color: "var(--text-muted)" }} />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Filter size={14} style={{ color: "var(--text-muted)" }} className="mr-1" />
+              <FilterPill active={difficultyFilter === "all"} onClick={() => onDifficultyChange("all")} label="All" count={counts.all} />
+              <FilterPill active={difficultyFilter === "starter"} onClick={() => onDifficultyChange("starter")} label="Starter" count={counts.starter} />
+              <FilterPill active={difficultyFilter === "easy"} onClick={() => onDifficultyChange("easy")} label="Easy" count={counts.easy} color="emerald" />
+              <FilterPill active={difficultyFilter === "medium"} onClick={() => onDifficultyChange("medium")} label="Medium" count={counts.medium} color="amber" />
+              {counts.hard > 0 && (
+                <FilterPill active={difficultyFilter === "hard"} onClick={() => onDifficultyChange("hard")} label="Hard" count={counts.hard} color="red" />
+              )}
+              {companies.length > 0 && (
+                <select
+                  value={companyFilter}
+                  onChange={(e) => onCompanyChange(e.target.value)}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer focus:outline-none"
+                  style={{
+                    background: companyFilter === "all" ? "white" : "var(--accent)",
+                    color: companyFilter === "all" ? "var(--text-secondary)" : "white",
+                    border: `1px solid ${companyFilter === "all" ? "var(--border)" : "var(--accent)"}`,
+                  }}
+                >
+                  <option value="all">All companies</option>
+                  {companies.map((c) => (
+                    <option key={c.name} value={c.name}>{c.name} ({c.count})</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
 
       {/* Table */}
       <div className="card overflow-hidden">
@@ -208,10 +214,155 @@ export default function ProblemsList({
         )}
       </div>
 
-      {/* Pagination */}
-      {isApi && filtered.length > 0 && (
-        <Pager page={page} totalPages={totalPages} totalRows={totalRows} pageSize={pageSize} loading={loading} onGoToPage={onGoToPage} />
+          {/* Pagination */}
+          {isApi && filtered.length > 0 && (
+            <Pager page={page} totalPages={totalPages} totalRows={totalRows} pageSize={pageSize} loading={loading} onGoToPage={onGoToPage} />
+          )}
+        </div>
+
+        <Sidebar
+          solvedCount={solved.size}
+          totalCount={counts.all}
+          companies={companies}
+          companyFilter={companyFilter}
+          onCompanyChange={onCompanyChange}
+          onOpenContests={onOpenContests}
+        />
+      </div>
+    </div>
+  );
+}
+
+function BannerRow({ onOpenContests }) {
+  const banners = [
+    { id: "contests", src: "/banners/contests.webp", alt: "Weekly Contests — solve a timed set, climb the leaderboard", onClick: onOpenContests },
+    { id: "interviews", src: "/banners/interviews.webp", alt: "Live mock interviews — real-time code and verdict sharing" },
+    { id: "catalog", src: "/banners/catalog.webp", alt: "280+ problems tagged by topic and company" },
+    { id: "community", src: "/banners/community.webp", alt: "Built by Flutter Kanpur — a student-run community" },
+  ];
+
+  return (
+    <div className="flex gap-3 overflow-x-auto pb-1 mb-6 -mx-1 px-1" style={{ scrollbarWidth: "thin" }}>
+      {banners.map((b) => (
+        <button
+          key={b.id}
+          onClick={b.onClick}
+          disabled={!b.onClick}
+          className="flex-shrink-0 w-80 rounded-2xl overflow-hidden transition-transform"
+          style={{ cursor: b.onClick ? "pointer" : "default", aspectRatio: "16 / 9" }}
+          onMouseEnter={(e) => { if (b.onClick) e.currentTarget.style.transform = "translateY(-2px)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)"; }}
+        >
+          <img src={b.src} alt={b.alt} className="w-full h-full object-cover" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Sidebar({ solvedCount, totalCount, companies, companyFilter, onCompanyChange, onOpenContests }) {
+  return (
+    <aside className="hidden lg:flex flex-col gap-4">
+      <ProgressCard solvedCount={solvedCount} totalCount={totalCount} />
+      <ContestCard onOpenContests={onOpenContests} />
+      {companies.length > 0 && (
+        <TrendingCompanies companies={companies} companyFilter={companyFilter} onCompanyChange={onCompanyChange} />
       )}
+    </aside>
+  );
+}
+
+function ProgressCard({ solvedCount, totalCount }) {
+  const pct = totalCount > 0 ? Math.round((solvedCount / totalCount) * 100) : 0;
+  return (
+    <div className="card p-4">
+      <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
+        Your progress
+      </div>
+      <div className="flex items-baseline gap-1.5 mb-2">
+        <span className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{solvedCount}</span>
+        <span className="text-sm" style={{ color: "var(--text-muted)" }}>/ {totalCount} solved</span>
+      </div>
+      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#f4f4f5" }}>
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "var(--accent)" }} />
+      </div>
+    </div>
+  );
+}
+
+function ContestCard({ onOpenContests }) {
+  const [contest, setContest] = useState(undefined); // undefined = loading, null = none
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchContests()
+      .then((list) => {
+        if (cancelled) return;
+        const live = list.find((c) => contestStatus(c) === "live");
+        const upcoming = list
+          .filter((c) => contestStatus(c) === "upcoming")
+          .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))[0];
+        setContest(live || upcoming || null);
+      })
+      .catch(() => setContest(null));
+    return () => { cancelled = true; };
+  }, []);
+
+  if (contest === undefined) {
+    return (
+      <div className="card p-4 flex justify-center py-6">
+        <Loader2 size={16} className="animate-spin" style={{ color: "var(--accent)" }} />
+      </div>
+    );
+  }
+  if (!contest) return null;
+
+  return <ContestCardBody contest={contest} onOpenContests={onOpenContests} />;
+}
+
+function ContestCardBody({ contest, onOpenContests }) {
+  const status = contestStatus(contest);
+  const target = status === "live" ? contest.endsAt : contest.startsAt;
+  const { formatted } = useCountdown(target);
+
+  return (
+    <button onClick={onOpenContests} className="card p-4 text-left transition-colors hover:bg-zinc-50">
+      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--accent)" }}>
+        <Trophy size={13} /> {status === "live" ? "Live now" : "Up next"}
+      </div>
+      <div className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>{contest.title}</div>
+      <div className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>
+        {status === "live" ? `${formatted} left` : `starts in ${formatted}`}
+      </div>
+    </button>
+  );
+}
+
+function TrendingCompanies({ companies, companyFilter, onCompanyChange }) {
+  const top = companies.slice(0, 6);
+  return (
+    <div className="card p-4">
+      <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>
+        Trending companies
+      </div>
+      <div className="flex flex-col gap-1">
+        {top.map((c) => (
+          <button
+            key={c.name}
+            onClick={() => onCompanyChange(companyFilter === c.name ? "all" : c.name)}
+            className="flex items-center justify-between px-2 py-1.5 rounded-lg text-sm transition-colors"
+            style={{
+              background: companyFilter === c.name ? "var(--accent-soft)" : "transparent",
+              color: companyFilter === c.name ? "var(--accent)" : "var(--text-secondary)",
+            }}
+            onMouseEnter={(e) => { if (companyFilter !== c.name) e.currentTarget.style.background = "#fafafa"; }}
+            onMouseLeave={(e) => { if (companyFilter !== c.name) e.currentTarget.style.background = "transparent"; }}
+          >
+            <span className="font-medium">{c.name}</span>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>{c.count}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

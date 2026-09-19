@@ -103,7 +103,7 @@ export async function deleteProblem(id) {
 // ---------------------------------------------------------------------------
 
 export async function insertSubmission({
-  userId, problemId, kind, language, code, verdict, passed, total, timeMs, memoryKb,
+  userId, problemId, kind, language, code, verdict, passed, total, timeMs, memoryKb, contestId,
 }) {
   const { error } = await supabase.from("submissions").insert({
     user_id: userId,
@@ -116,6 +116,7 @@ export async function insertSubmission({
     total: total ?? null,
     time_ms: timeMs ?? null,
     memory_kb: memoryKb ?? null,
+    contest_id: contestId ?? null,
   });
   if (error) throw error;
 }

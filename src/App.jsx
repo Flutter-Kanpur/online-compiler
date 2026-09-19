@@ -12,6 +12,9 @@ import Profile from "./pages/Profile.jsx";
 import AdminApp from "./pages/admin/AdminApp.jsx";
 import InterviewCandidate from "./pages/interview/InterviewCandidate.jsx";
 import InterviewInterviewer from "./pages/interview/InterviewInterviewer.jsx";
+import ContestsList from "./pages/contests/ContestsList.jsx";
+import ContestWorkspace from "./pages/contests/ContestWorkspace.jsx";
+import ContestLeaderboard from "./pages/contests/ContestLeaderboard.jsx";
 
 // A candidate/interviewer link (e.g. /interview/ab12cd34/candidate) opens
 // straight into that standalone view — no login, no Topbar, no normal app
@@ -148,6 +151,10 @@ function MainApp() {
   }
 
   const isAdminView = view.name === "admin" && isAdmin;
+  // The contest workspace has its own sticky header (back button, live
+  // countdown, standings link) — stacking the normal Topbar above it would
+  // just duplicate chrome, same reasoning that hides it for the admin panel.
+  const hideChrome = isAdminView || view.name === "contest";
 
   async function handleSignOut() {
     await signOut();
@@ -156,7 +163,7 @@ function MainApp() {
 
   return (
     <div className="min-h-screen" style={{ background: "var(--bg-app)" }}>
-      {!isAdminView && (
+      {!hideChrome && (
         <Topbar
           user={uiUser}
           isAdmin={isAdmin}
@@ -164,6 +171,7 @@ function MainApp() {
           setMenuOpen={setMenuOpen}
           onHome={() => go({ name: "list" })}
           onProfile={() => go({ name: "profile" })}
+          onContests={() => go({ name: "contests" })}
           onAdmin={() => go({ name: "admin", subview: "dashboard" })}
           onSignOut={handleSignOut}
           currentView={view.name}
@@ -174,6 +182,7 @@ function MainApp() {
         {view.name === "list" && (
           <ProblemsList
             onOpen={(p) => go({ name: "problem", problem: p })}
+            onOpenContests={() => go({ name: "contests" })}
             solved={solved}
             problems={problems}
             loading={loading}
@@ -206,6 +215,22 @@ function MainApp() {
             problems={problems}
           />
         )}
+        {view.name === "contests" && (
+          <ContestsList onOpen={(c) => go({ name: "contest", contest: c })} />
+        )}
+        {view.name === "contest" && (
+          <ContestWorkspace
+            contest={view.contest}
+            onBack={() => go({ name: "contests" })}
+            onOpenLeaderboard={() => go({ name: "contestLeaderboard", contest: view.contest })}
+          />
+        )}
+        {view.name === "contestLeaderboard" && (
+          <ContestLeaderboard
+            contest={view.contest}
+            onBack={() => go({ name: "contest", contest: view.contest })}
+          />
+        )}
         {view.name === "admin" && !isAdmin && (
           <NotAdmin onBack={() => go({ name: "list" })} />
         )}
@@ -218,7 +243,7 @@ function MainApp() {
         )}
       </main>
 
-      {!isAdminView && (
+      {!hideChrome && (
         <footer className="mt-16 border-t" style={{ borderColor: "var(--border)" }}>
           <div className="max-w-7xl mx-auto px-6 py-6 flex flex-wrap items-center justify-between gap-3 text-xs"
                style={{ color: "var(--text-muted)" }}>
@@ -256,7 +281,7 @@ function NotAdmin({ onBack }) {
 // ---------------------------------------------------------------------------
 //  Topbar
 // ---------------------------------------------------------------------------
-function Topbar({ user, isAdmin, menuOpen, setMenuOpen, onHome, onProfile, onAdmin, onSignOut, currentView }) {
+function Topbar({ user, isAdmin, menuOpen, setMenuOpen, onHome, onProfile, onContests, onAdmin, onSignOut, currentView }) {
   return (
     <header
       className="sticky top-0 z-40 backdrop-blur-md"
@@ -292,6 +317,7 @@ function Topbar({ user, isAdmin, menuOpen, setMenuOpen, onHome, onProfile, onAdm
 
           <nav className="hidden md:flex items-center gap-1">
             <NavLink active={currentView === "list"} onClick={onHome}>Problems</NavLink>
+            <NavLink active={currentView === "contests" || currentView === "contest" || currentView === "contestLeaderboard"} onClick={onContests}>Contests</NavLink>
             <NavLink active={currentView === "profile"} onClick={onProfile}>Profile</NavLink>
           </nav>
         </div>
