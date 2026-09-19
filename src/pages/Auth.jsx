@@ -302,7 +302,7 @@ export default function Auth() {
 
           {error && <div className="text-xs" style={{ color: "#b91c1c" }}>{error}</div>}
 
-          <button type="submit" disabled={busy} className="btn-primary auth-btn-shimmer w-full justify-center">
+          <button type="submit" disabled={busy} className="btn-primary w-full justify-center">
             {busy ? <Loader2 size={14} className="animate-spin" /> : null}
             {mode === "signin" ? "Sign in" : "Create account"}
           </button>

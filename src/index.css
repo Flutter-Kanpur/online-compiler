@@ -182,11 +182,6 @@ button:disabled {
   50%      { box-shadow: 0 25px 70px -12px rgba(124, 58, 237, 0.45), 0 0 42px 4px rgba(19, 185, 253, 0.25); }
 }
 
-@keyframes shimmerSweep {
-  0%   { transform: translateX(-120%); }
-  100% { transform: translateX(220%); }
-}
-
 .auth-star {
   position: absolute;
   border-radius: 50%;
@@ -214,18 +209,3 @@ button:disabled {
   border-radius: 0.7rem;
 }
 
-.auth-btn-shimmer {
-  position: relative;
-  overflow: hidden;
-}
-
-.auth-btn-shimmer::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 40%;
-  height: 100%;
-  background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.55), transparent);
-  animation: shimmerSweep 2.6s ease-in-out infinite;
-}
