@@ -264,6 +264,24 @@ export async function fetchUserStats(userId, allProblems) {
 }
 
 // ---------------------------------------------------------------------------
+// users (admin/Users.jsx)
+// ---------------------------------------------------------------------------
+
+export async function fetchAllUsers() {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, username, name, role, created_at")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function updateUserRole(userId, role) {
+  const { error } = await supabase.from("profiles").update({ role }).eq("id", userId);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
 // admin dashboard (Dashboard.jsx)
 // ---------------------------------------------------------------------------
 

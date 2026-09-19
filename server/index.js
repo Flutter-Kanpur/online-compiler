@@ -27,7 +27,13 @@ app.use(express.json());
 /** @type {Map<string, Room>} */
 const rooms = new Map();
 
-function makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPrompt }) {
+const DEFAULT_WEBUI = {
+  html: `<div class="card">\n  <h1>Hello!</h1>\n  <p>Start building.</p>\n</div>`,
+  css: `.card {\n  font-family: sans-serif;\n  padding: 24px;\n  border-radius: 12px;\n  background: #f4f4f5;\n}`,
+  js: `// your code here`,
+};
+
+function makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt }) {
   const id = nanoid(8);
   const room = {
     id,
@@ -36,6 +42,8 @@ function makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPromp
     flutterRound: !!flutterRound,
     flutterGistId: flutterGistId && flutterGistId.trim() ? flutterGistId.trim() : null,
     flutterPrompt: flutterPrompt && flutterPrompt.trim() ? flutterPrompt.trim() : null,
+    webuiRound: !!webuiRound,
+    webuiPrompt: webuiPrompt && webuiPrompt.trim() ? webuiPrompt.trim() : null,
     createdAt: Date.now(),
     candidateSocket: null,
     interviewerSockets: new Set(),
@@ -44,6 +52,7 @@ function makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPromp
       language: "python",
       codeByProblem: {},
       lastResultByProblem: {},
+      webui: { ...DEFAULT_WEBUI },
       candidateName: null,
       candidateConnected: false,
     },
@@ -60,6 +69,8 @@ function roomSummary(room) {
     flutterRound: room.flutterRound,
     flutterGistId: room.flutterGistId,
     flutterPrompt: room.flutterPrompt,
+    webuiRound: room.webuiRound,
+    webuiPrompt: room.webuiPrompt,
     createdAt: room.createdAt,
     candidateConnected: room.state.candidateConnected,
     candidateName: room.state.candidateName,
@@ -68,14 +79,14 @@ function roomSummary(room) {
 }
 
 app.post("/api/interviews", (req, res) => {
-  const { title, problemIds = [], flutterRound, flutterGistId, flutterPrompt } = req.body || {};
+  const { title, problemIds = [], flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt } = req.body || {};
   if (!Array.isArray(problemIds)) {
     return res.status(400).json({ error: "problemIds must be an array" });
   }
-  if (problemIds.length === 0 && !flutterRound) {
-    return res.status(400).json({ error: "pick at least one problem or include a Flutter round" });
+  if (problemIds.length === 0 && !flutterRound && !webuiRound) {
+    return res.status(400).json({ error: "pick at least one problem, or include a Flutter or Web UI round" });
   }
-  const room = makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPrompt });
+  const room = makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt });
   res.json(roomSummary(room));
 });
 
@@ -184,6 +195,9 @@ function applyCandidateMessage(room, msg) {
       break;
     case "result":
       room.state.lastResultByProblem[msg.problemId] = msg.result;
+      break;
+    case "webuiCode":
+      room.state.webui = { html: msg.html ?? "", css: msg.css ?? "", js: msg.js ?? "" };
       break;
     default:
       break;

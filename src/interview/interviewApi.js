@@ -12,11 +12,11 @@ async function asJson(res) {
   return res.json();
 }
 
-export function createInterview({ title, problemIds, flutterRound, flutterGistId, flutterPrompt }) {
+export function createInterview({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt }) {
   return fetch(BASE, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title, problemIds, flutterRound, flutterGistId, flutterPrompt }),
+    body: JSON.stringify({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt }),
   }).then(asJson);
 }
 
@@ -52,4 +52,9 @@ export function interviewerLink(roomId) {
 export function interviewWsUrl(roomId, role) {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
   return `${proto}://${window.location.host}/ws/interview/${roomId}?role=${role}`;
+}
+
+/** Combines a Web UI round's HTML/CSS/JS into one document for the preview iframe's `srcDoc`. */
+export function buildWebUIDoc({ html, css, js }) {
+  return `<!DOCTYPE html><html><head><style>${css || ""}</style></head><body>${html || ""}<script>${js || ""}<\/script></body></html>`;
 }

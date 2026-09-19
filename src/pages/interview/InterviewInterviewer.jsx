@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { Loader2, Wifi, WifiOff, User, Eye, Smartphone, ExternalLink, MonitorPlay } from "lucide-react";
+import { Loader2, Wifi, WifiOff, User, Eye, Smartphone, Globe, ExternalLink, MonitorPlay } from "lucide-react";
 import { fetchAllProblems } from "../../lib/db.js";
-import { getInterview, dartpadEmbedUrl } from "../../interview/interviewApi.js";
+import { getInterview, dartpadEmbedUrl, buildWebUIDoc } from "../../interview/interviewApi.js";
 import { useInterviewSocket } from "../../interview/useInterviewSocket.js";
 import {
   LANG, ProblemDescription, CodeArea, ResultsView, Tab,
 } from "../ProblemPage.jsx";
 
 const FLUTTER_TAB = "__flutter__";
+const WEBUI_TAB = "__webui__";
+const EMPTY_WEBUI = { html: "", css: "", js: "" };
 
 export default function InterviewInterviewer({ roomId }) {
   const [room, setRoom] = useState(null);
@@ -29,8 +31,11 @@ export default function InterviewInterviewer({ roomId }) {
 
 function InterviewerWatch({ room, problemsById, roomId }) {
   const problems = room.problemIds.map((id) => problemsById[id]).filter(Boolean);
-  const [activeId, setActiveId] = useState(problems[0]?.id ?? (room.flutterRound ? FLUTTER_TAB : undefined));
+  const [activeId, setActiveId] = useState(
+    problems[0]?.id ?? (room.flutterRound ? FLUTTER_TAB : room.webuiRound ? WEBUI_TAB : undefined)
+  );
   const isFlutterTab = activeId === FLUTTER_TAB;
+  const isWebUITab = activeId === WEBUI_TAB;
   const [language, setLanguage] = useState("python");
   const [codeByProblem, setCodeByProblem] = useState({});
   const [resultsByProblem, setResultsByProblem] = useState({});
@@ -38,6 +43,8 @@ function InterviewerWatch({ room, problemsById, roomId }) {
   const [candidateConnected, setCandidateConnected] = useState(false);
   const [activeTab, setActiveTab] = useState("problem");
   const [followCandidate, setFollowCandidate] = useState(true);
+  const [webuiCode, setWebuiCode] = useState(EMPTY_WEBUI);
+  const [webuiEditor, setWebuiEditor] = useState("html");
 
   const { connected } = useInterviewSocket(roomId, "interviewer", (msg) => {
     switch (msg.type) {
@@ -48,6 +55,7 @@ function InterviewerWatch({ room, problemsById, roomId }) {
         setLanguage(s.language || "python");
         setCandidateName(s.candidateName);
         setCandidateConnected(s.candidateConnected);
+        if (s.webui) setWebuiCode(s.webui);
         if (s.activeProblemId) setActiveId(s.activeProblemId);
         break;
       }
@@ -57,6 +65,9 @@ function InterviewerWatch({ room, problemsById, roomId }) {
       case "code":
         setCodeByProblem((prev) => ({ ...prev, [msg.problemId]: msg.code }));
         setLanguage(msg.language);
+        break;
+      case "webuiCode":
+        setWebuiCode({ html: msg.html ?? "", css: msg.css ?? "", js: msg.js ?? "" });
         break;
       case "activeProblem":
         if (followCandidate) setActiveId(msg.problemId);
@@ -73,11 +84,11 @@ function InterviewerWatch({ room, problemsById, roomId }) {
     }
   });
 
-  const activeProblem = isFlutterTab ? null : problemsById[activeId];
+  const activeProblem = (isFlutterTab || isWebUITab) ? null : problemsById[activeId];
   const code = codeByProblem[activeId] ?? "";
   const results = resultsByProblem[activeId] || null;
 
-  if (!activeProblem && !isFlutterTab) return <CenteredMessage title="No problems assigned to this interview" />;
+  if (!activeProblem && !isFlutterTab && !isWebUITab) return <CenteredMessage title="No problems assigned to this interview" />;
 
   return (
     <div className="min-h-screen" style={{ background: "var(--bg-app)" }}>
@@ -103,7 +114,7 @@ function InterviewerWatch({ room, problemsById, roomId }) {
         </div>
       </header>
 
-      {(problems.length > 1 || (problems.length >= 1 && room.flutterRound)) && (
+      {problems.length + (room.flutterRound ? 1 : 0) + (room.webuiRound ? 1 : 0) > 1 && (
         <div className="flex items-center justify-between px-4 pt-3">
           <div className="flex gap-1.5">
             {problems.map((p, i) => (
@@ -133,6 +144,19 @@ function InterviewerWatch({ room, problemsById, roomId }) {
                 <Smartphone size={12} /> Flutter
               </button>
             )}
+            {room.webuiRound && (
+              <button
+                onClick={() => { setActiveId(WEBUI_TAB); setFollowCandidate(false); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                style={{
+                  background: isWebUITab ? "var(--accent)" : "white",
+                  color: isWebUITab ? "white" : "var(--text-secondary)",
+                  border: "1px solid " + (isWebUITab ? "var(--accent)" : "var(--border)"),
+                }}
+              >
+                <Globe size={12} /> Web UI
+              </button>
+            )}
           </div>
           <label className="flex items-center gap-1.5 text-xs font-medium cursor-pointer" style={{ color: "var(--text-secondary)" }}>
             <input type="checkbox" checked={followCandidate} onChange={(e) => setFollowCandidate(e.target.checked)} />
@@ -144,6 +168,8 @@ function InterviewerWatch({ room, problemsById, roomId }) {
       <div className="max-w-[1400px] mx-auto px-4 py-4">
         {isFlutterTab ? (
           <FlutterWatchPanel room={room} />
+        ) : isWebUITab ? (
+          <WebUIWatchPanel room={room} webuiCode={webuiCode} activeEditor={webuiEditor} setActiveEditor={setWebuiEditor} />
         ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.1fr] gap-4">
           <div className="card overflow-hidden flex flex-col" style={{ minHeight: "calc(100vh - 180px)" }}>
@@ -186,6 +212,71 @@ function InterviewerWatch({ room, problemsById, roomId }) {
         </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function WebUIWatchPanel({ room, webuiCode, activeEditor, setActiveEditor }) {
+  const [previewDoc, setPreviewDoc] = useState(() => buildWebUIDoc(webuiCode));
+  useEffect(() => {
+    const t = setTimeout(() => setPreviewDoc(buildWebUIDoc(webuiCode)), 300);
+    return () => clearTimeout(t);
+  }, [webuiCode]);
+
+  const hasCode = webuiCode.html || webuiCode.css || webuiCode.js;
+
+  return (
+    <div className="space-y-3">
+      {room.webuiPrompt && (
+        <div className="rounded-lg p-3 flex items-start gap-2.5" style={{ background: "#faf5ff", border: "1px solid #e9d5ff" }}>
+          <Globe size={16} style={{ color: "#7c3aed" }} className="flex-shrink-0 mt-0.5" />
+          <div className="text-xs" style={{ color: "#581c87" }}>{room.webuiPrompt}</div>
+        </div>
+      )}
+      {!hasCode ? (
+        <div className="card p-12 text-center text-sm" style={{ color: "var(--text-muted)" }}>
+          Candidate hasn't opened the Web UI round yet.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="card overflow-hidden flex flex-col" style={{ background: "#0f172a", borderColor: "#0f172a", minHeight: "60vh" }}>
+            <div className="flex items-center justify-between" style={{ borderBottom: "1px solid #1e293b" }}>
+              <div className="flex">
+                {["html", "css", "js"].map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => setActiveEditor(k)}
+                    className="px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-colors"
+                    style={{
+                      color: activeEditor === k ? "#e2e8f0" : "#64748b",
+                      borderBottom: activeEditor === k ? "2px solid var(--accent)" : "2px solid transparent",
+                    }}
+                  >
+                    {k}
+                  </button>
+                ))}
+              </div>
+              <div className="text-[10px] font-medium uppercase tracking-wider pr-3" style={{ color: "#64748b" }}>
+                read-only · live mirror
+              </div>
+            </div>
+            <CodeArea code={webuiCode[activeEditor]} setCode={() => {}} readOnly />
+          </div>
+
+          <div className="card overflow-hidden flex flex-col" style={{ minHeight: "60vh" }}>
+            <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider" style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)" }}>
+              Live preview
+            </div>
+            <iframe
+              title="Web UI preview"
+              srcDoc={previewDoc}
+              sandbox="allow-scripts"
+              className="flex-1"
+              style={{ width: "100%", border: "none", background: "white" }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

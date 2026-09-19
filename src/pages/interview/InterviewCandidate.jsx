@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Play, Send, Loader2, Wifi, WifiOff, Zap, Smartphone } from "lucide-react";
+import { Play, Send, Loader2, Wifi, WifiOff, Zap, Smartphone, Globe } from "lucide-react";
 import { fetchAllProblems } from "../../lib/db.js";
-import { getInterview, dartpadEmbedUrl } from "../../interview/interviewApi.js";
+import { getInterview, dartpadEmbedUrl, buildWebUIDoc } from "../../interview/interviewApi.js";
 import { useInterviewSocket } from "../../interview/useInterviewSocket.js";
 import {
   LANG, LANG_BY_CATEGORY, starterFor, judge0Run, classifyVerdict,
@@ -9,6 +9,12 @@ import {
 } from "../ProblemPage.jsx";
 
 const FLUTTER_TAB = "__flutter__";
+const WEBUI_TAB = "__webui__";
+const DEFAULT_WEBUI = {
+  html: `<div class="card">\n  <h1>Hello!</h1>\n  <p>Start building.</p>\n</div>`,
+  css: `.card {\n  font-family: sans-serif;\n  padding: 24px;\n  border-radius: 12px;\n  background: #f4f4f5;\n}`,
+  js: `// your code here`,
+};
 
 export default function InterviewCandidate({ roomId }) {
   const [room, setRoom] = useState(null);
@@ -79,9 +85,12 @@ function NameGate({ title, name, setName, onJoin }) {
 
 function CandidateWorkspace({ room, problemsById, candidateName, roomId }) {
   const problems = room.problemIds.map((id) => problemsById[id]).filter(Boolean);
-  const [activeId, setActiveId] = useState(problems[0]?.id ?? (room.flutterRound ? FLUTTER_TAB : undefined));
+  const [activeId, setActiveId] = useState(
+    problems[0]?.id ?? (room.flutterRound ? FLUTTER_TAB : room.webuiRound ? WEBUI_TAB : undefined)
+  );
   const isFlutterTab = activeId === FLUTTER_TAB;
-  const activeProblem = isFlutterTab ? null : problemsById[activeId];
+  const isWebUITab = activeId === WEBUI_TAB;
+  const activeProblem = (isFlutterTab || isWebUITab) ? null : problemsById[activeId];
 
   const [language, setLanguage] = useState("python");
   const [codeByProblem, setCodeByProblem] = useState({});
@@ -90,6 +99,8 @@ function CandidateWorkspace({ room, problemsById, candidateName, roomId }) {
   const [resultsByProblem, setResultsByProblem] = useState({});
   const [activeTab, setActiveTab] = useState("problem");
   const [interviewerCount, setInterviewerCount] = useState(0);
+  const [webuiCode, setWebuiCode] = useState(DEFAULT_WEBUI);
+  const [webuiEditor, setWebuiEditor] = useState("html");
 
   const { connected, send } = useInterviewSocket(roomId, "candidate", (msg) => {
     if (msg.type === "presence" && msg.role === "interviewer") {
@@ -105,10 +116,10 @@ function CandidateWorkspace({ room, problemsById, candidateName, roomId }) {
     }
   }, [connected, candidateName, send]);
 
-  const code = isFlutterTab ? "" : (codeByProblem[activeId] ?? starterFor(activeProblem, language));
+  const code = (isFlutterTab || isWebUITab) ? "" : (codeByProblem[activeId] ?? starterFor(activeProblem, language));
 
   useEffect(() => {
-    if (isFlutterTab) return;
+    if (isFlutterTab || isWebUITab) return;
     const starter = starterFor(activeProblem, language);
     setCodeByProblem((prev) => ({ ...prev, [activeId]: starter }));
     send({ type: "code", problemId: activeId, language, code: starter });
@@ -122,11 +133,23 @@ function CandidateWorkspace({ room, problemsById, candidateName, roomId }) {
   // Re-sync the interviewer with whatever's currently on screen once the
   // socket (re)connects — covers the initial connect race and any reconnect.
   useEffect(() => {
-    if (!connected || isFlutterTab) return;
+    if (!connected) return;
+    if (room.webuiRound) send({ type: "webuiCode", ...webuiCode });
+    if (isFlutterTab || isWebUITab) return;
     send({ type: "activeProblem", problemId: activeId });
     send({ type: "code", problemId: activeId, language, code: codeByProblem[activeId] ?? starterFor(activeProblem, language) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected]);
+
+  const webuiDebounceRef = useRef(null);
+  function updateWebui(part, value) {
+    setWebuiCode((prev) => {
+      const next = { ...prev, [part]: value };
+      clearTimeout(webuiDebounceRef.current);
+      webuiDebounceRef.current = setTimeout(() => send({ type: "webuiCode", ...next }), 250);
+      return next;
+    });
+  }
 
   const debounceRef = useRef(null);
   function setCode(next) {
@@ -210,7 +233,7 @@ function CandidateWorkspace({ room, problemsById, candidateName, roomId }) {
     }
   }
 
-  if (!activeProblem && !isFlutterTab) return <CenteredMessage title="No problems assigned to this interview" />;
+  if (!activeProblem && !isFlutterTab && !isWebUITab) return <CenteredMessage title="No problems assigned to this interview" />;
 
   return (
     <div className="min-h-screen" style={{ background: "var(--bg-app)" }}>
@@ -227,7 +250,7 @@ function CandidateWorkspace({ room, problemsById, candidateName, roomId }) {
         </div>
       </header>
 
-      {(problems.length > 1 || (problems.length >= 1 && room.flutterRound)) && (
+      {problems.length + (room.flutterRound ? 1 : 0) + (room.webuiRound ? 1 : 0) > 1 && (
         <div className="flex gap-1.5 px-4 pt-3">
           {problems.map((p, i) => (
             <button
@@ -256,12 +279,33 @@ function CandidateWorkspace({ room, problemsById, candidateName, roomId }) {
               <Smartphone size={12} /> Flutter
             </button>
           )}
+          {room.webuiRound && (
+            <button
+              onClick={() => setActiveId(WEBUI_TAB)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+              style={{
+                background: isWebUITab ? "var(--accent)" : "white",
+                color: isWebUITab ? "white" : "var(--text-secondary)",
+                border: "1px solid " + (isWebUITab ? "var(--accent)" : "var(--border)"),
+              }}
+            >
+              <Globe size={12} /> Web UI
+            </button>
+          )}
         </div>
       )}
 
       <div className="max-w-[1400px] mx-auto px-4 py-4">
         {isFlutterTab ? (
           <FlutterPanel room={room} />
+        ) : isWebUITab ? (
+          <WebUIPanel
+            room={room}
+            webuiCode={webuiCode}
+            activeEditor={webuiEditor}
+            setActiveEditor={setWebuiEditor}
+            onChange={updateWebui}
+          />
         ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.1fr] gap-4">
           <div className="card overflow-hidden flex flex-col" style={{ minHeight: "calc(100vh - 180px)" }}>
@@ -326,6 +370,63 @@ function CandidateWorkspace({ room, problemsById, candidateName, roomId }) {
       </div>
     </div>
   );
+}
+
+function WebUIPanel({ room, webuiCode, activeEditor, setActiveEditor, onChange }) {
+  const previewDoc = useDebouncedWebUIDoc(webuiCode);
+
+  return (
+    <div className="space-y-3">
+      {room.webuiPrompt && (
+        <div className="rounded-lg p-3 flex items-start gap-2.5" style={{ background: "#faf5ff", border: "1px solid #e9d5ff" }}>
+          <Globe size={16} style={{ color: "#7c3aed" }} className="flex-shrink-0 mt-0.5" />
+          <div className="text-xs" style={{ color: "#581c87" }}>{room.webuiPrompt}</div>
+        </div>
+      )}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="card overflow-hidden flex flex-col" style={{ background: "#0f172a", borderColor: "#0f172a", minHeight: "60vh" }}>
+          <div className="flex" style={{ borderBottom: "1px solid #1e293b" }}>
+            {["html", "css", "js"].map((k) => (
+              <button
+                key={k}
+                onClick={() => setActiveEditor(k)}
+                className="px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-colors"
+                style={{
+                  color: activeEditor === k ? "#e2e8f0" : "#64748b",
+                  borderBottom: activeEditor === k ? "2px solid var(--accent)" : "2px solid transparent",
+                }}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+          <CodeArea code={webuiCode[activeEditor]} setCode={(v) => onChange(activeEditor, v)} />
+        </div>
+
+        <div className="card overflow-hidden flex flex-col" style={{ minHeight: "60vh" }}>
+          <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider" style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)" }}>
+            Live preview
+          </div>
+          <iframe
+            title="Web UI preview"
+            srcDoc={previewDoc}
+            sandbox="allow-scripts"
+            className="flex-1"
+            style={{ width: "100%", border: "none", background: "white" }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function useDebouncedWebUIDoc(webuiCode) {
+  const [doc, setDoc] = useState(() => buildWebUIDoc(webuiCode));
+  useEffect(() => {
+    const t = setTimeout(() => setDoc(buildWebUIDoc(webuiCode)), 300);
+    return () => clearTimeout(t);
+  }, [webuiCode]);
+  return doc;
 }
 
 function FlutterPanel({ room }) {

@@ -9,6 +9,7 @@ import AddProblem from "./AddProblem.jsx";
 import BulkUpload from "./BulkUpload.jsx";
 import Interviews from "./Interviews.jsx";
 import Contests from "./Contests.jsx";
+import UsersPage from "./Users.jsx";
 
 export default function AdminApp({ subview = "dashboard", onNavigate, onExit }) {
   return (
@@ -23,7 +24,7 @@ export default function AdminApp({ subview = "dashboard", onNavigate, onExit }) 
           {subview === "bulk" && <BulkUpload onDone={() => onNavigate("problems")} />}
           {subview === "interviews" && <Interviews />}
           {subview === "contests" && <Contests />}
-          {subview === "users" && <ComingSoon title="Users" description="User management is not part of this UI demo." />}
+          {subview === "users" && <UsersPage />}
           {subview === "settings" && <ComingSoon title="Settings" description="Settings panel placeholder." />}
         </div>
       </div>
@@ -197,7 +198,7 @@ function TopBar({ subview }) {
         <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md"
               style={{ background: "#f4f4f5" }}>
           <Database size={12} />
-          {subview === "interviews" ? "Live interviews use the relay server" : "UI demo · no backend"}
+          {subview === "interviews" ? "Live interviews use the relay server" : "Live · Supabase"}
         </span>
       </div>
     </header>

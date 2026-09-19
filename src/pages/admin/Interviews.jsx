@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Video, Copy, Check, ExternalLink, X, AlertTriangle, User, Loader2, Smartphone } from "lucide-react";
+import { Video, Copy, Check, ExternalLink, X, AlertTriangle, User, Loader2, Smartphone, Globe } from "lucide-react";
 import { fetchAllProblems } from "../../lib/db.js";
 import {
   createInterview, listInterviews, endInterview, candidateLink, interviewerLink,
@@ -13,6 +13,8 @@ export default function Interviews() {
   const [flutterRound, setFlutterRound] = useState(false);
   const [flutterGistId, setFlutterGistId] = useState("");
   const [flutterPrompt, setFlutterPrompt] = useState("");
+  const [webuiRound, setWebuiRound] = useState(false);
+  const [webuiPrompt, setWebuiPrompt] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState(null);
   const [lastCreated, setLastCreated] = useState(null);
@@ -45,7 +47,7 @@ export default function Interviews() {
   }
 
   async function handleCreate() {
-    if (selected.size === 0 && !flutterRound) return;
+    if (selected.size === 0 && !flutterRound && !webuiRound) return;
     setCreating(true);
     setCreateError(null);
     try {
@@ -53,6 +55,8 @@ export default function Interviews() {
         title, problemIds: [...selected], flutterRound,
         flutterGistId: flutterGistId.trim() || null,
         flutterPrompt: flutterPrompt.trim() || null,
+        webuiRound,
+        webuiPrompt: webuiPrompt.trim() || null,
       });
       setLastCreated(room);
       setSelected(new Set());
@@ -60,6 +64,8 @@ export default function Interviews() {
       setFlutterRound(false);
       setFlutterGistId("");
       setFlutterPrompt("");
+      setWebuiRound(false);
+      setWebuiPrompt("");
       refresh();
     } catch (e) {
       setCreateError(e.message);
@@ -154,13 +160,35 @@ export default function Interviews() {
           )}
         </div>
 
+        <div className="rounded-lg p-3 mb-4" style={{ background: "#fafafa", border: "1px solid var(--border)" }}>
+          <label className="flex items-center gap-2.5 text-sm font-medium cursor-pointer" style={{ color: "var(--text-primary)" }}>
+            <input type="checkbox" checked={webuiRound} onChange={(e) => setWebuiRound(e.target.checked)} />
+            <Globe size={14} /> Include a Web UI round (HTML/CSS/JS)
+          </label>
+          {webuiRound && (
+            <div className="mt-3 space-y-2 pl-6">
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                The candidate gets HTML/CSS/JS editors and a live preview. Unlike the Flutter round, this stays
+                fully live-synced over the same relay as the DSA problems — you'll see their code and rendered
+                preview update in real time, no screen share needed.
+              </p>
+              <input
+                value={webuiPrompt}
+                onChange={(e) => setWebuiPrompt(e.target.value)}
+                placeholder="Prompt shown to the candidate — e.g. 'Build a responsive pricing card'"
+                className="input-field text-sm"
+              />
+            </div>
+          )}
+        </div>
+
         {createError && (
           <div className="text-xs mb-3" style={{ color: "#b91c1c" }}>{createError}</div>
         )}
 
-        <button className="btn-primary" disabled={(selected.size === 0 && !flutterRound) || creating} onClick={handleCreate}>
+        <button className="btn-primary" disabled={(selected.size === 0 && !flutterRound && !webuiRound) || creating} onClick={handleCreate}>
           <Video size={14} />
-          {creating ? "Creating…" : `Create interview (${selected.size} problem${selected.size === 1 ? "" : "s"}${flutterRound ? " + Flutter round" : ""})`}
+          {creating ? "Creating…" : `Create interview (${selected.size} problem${selected.size === 1 ? "" : "s"}${flutterRound ? " + Flutter round" : ""}${webuiRound ? " + Web UI round" : ""})`}
         </button>
       </div>
 
@@ -189,6 +217,12 @@ export default function Interviews() {
                       <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
                             style={{ background: "#e0f2fe", color: "#0369a1" }}>
                         <Smartphone size={10} /> Flutter
+                      </span>
+                    )}
+                    {r.webuiRound && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                            style={{ background: "#ede9fe", color: "#6d28d9" }}>
+                        <Globe size={10} /> Web UI
                       </span>
                     )}
                   </div>
