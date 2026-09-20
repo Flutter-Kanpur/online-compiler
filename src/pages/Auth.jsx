@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Zap, Loader2, AlertCircle, Mail } from "lucide-react";
+import { Zap, Loader2, AlertCircle, Mail, Github } from "lucide-react";
 import { useAuth } from "../lib/auth.jsx";
 
 // Fixed (module-load-time, not per-render) star field for the auth background.
@@ -180,7 +180,7 @@ function AuthBackground({ children }) {
 }
 
 export default function Auth() {
-  const { configured, signInWithEmail, signUpWithEmail, signInWithGoogle } = useAuth();
+  const { configured, signInWithEmail, signUpWithEmail, signInWithGoogle, signInWithGitHub } = useAuth();
   const [mode, setMode] = useState("signin"); // 'signin' | 'signup'
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -238,6 +238,12 @@ export default function Auth() {
     if (err) setError(err.message || String(err));
   }
 
+  async function handleGitHub() {
+    setError(null);
+    const { error: err } = await signInWithGitHub();
+    if (err) setError(err.message || String(err));
+  }
+
   if (checkEmail) {
     return (
       <AuthBackground>
@@ -280,9 +286,14 @@ export default function Auth() {
           {mode === "signin" ? "Sign in to track your progress." : "Create an account to start solving."}
         </p>
 
-        <button onClick={handleGoogle} className="btn-secondary w-full justify-center mb-4">
-          <GoogleIcon /> Continue with Google
-        </button>
+        <div className="space-y-2 mb-4">
+          <button onClick={handleGoogle} className="btn-secondary w-full justify-center">
+            <GoogleIcon /> Continue with Google
+          </button>
+          <button onClick={handleGitHub} className="btn-secondary w-full justify-center">
+            <Github size={16} /> Continue with GitHub
+          </button>
+        </div>
 
         <div className="flex items-center gap-3 mb-4">
           <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
