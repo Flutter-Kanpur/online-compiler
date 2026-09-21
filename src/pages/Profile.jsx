@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { fetchUserStats } from "../lib/db.js";
 import { formatRelativeTime } from "../utils/time.js";
+import pkg from "../../package.json";
 
 function Avatar({ name, size = 32 }) {
   const initials = (name || "?").split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
@@ -123,6 +124,9 @@ export default function Profile({ user, userId, onOpenProblem, problems }) {
         />
       </div>
 
+      {/* Streak badges */}
+      <StreakBadges maxStreak={stats.maxStreak} />
+
       {/* Difficulty breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         <div className="lg:col-span-1">
@@ -139,7 +143,7 @@ export default function Profile({ user, userId, onOpenProblem, problems }) {
           <div className="card p-5">
             <div className="flex items-center justify-between mb-4">
               <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Submission activity</div>
-              <div className="text-xs" style={{ color: "var(--text-muted)" }}>Last 90 days</div>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>Last 12 months</div>
             </div>
             <Heatmap data={heatmap} />
             <div className="flex items-center justify-end gap-2 mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
@@ -201,6 +205,10 @@ export default function Profile({ user, userId, onOpenProblem, problems }) {
         </div>
         )}
       </div>
+
+      <div className="text-center text-xs mt-6" style={{ color: "var(--text-muted)" }}>
+        Sparx v{pkg.version}
+      </div>
     </div>
   );
 }
@@ -221,6 +229,56 @@ function StatCard({ icon, color, label, value, sub }) {
       </div>
       <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
         {label} · <span>{sub}</span>
+      </div>
+    </div>
+  );
+}
+
+const STREAK_MILESTONES = [
+  { days: 7, label: "7 Day", color: "#f59e0b" },
+  { days: 30, label: "30 Day", color: "#ea580c" },
+  { days: 100, label: "100 Day", color: "#dc2626" },
+  { days: 365, label: "365 Day", color: "#7c3aed" },
+];
+
+function StreakBadges({ maxStreak }) {
+  return (
+    <div className="card p-5 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Streak badges</div>
+        <div className="text-xs" style={{ color: "var(--text-muted)" }}>Best streak: {maxStreak}d</div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {STREAK_MILESTONES.map((m) => {
+          const unlocked = maxStreak >= m.days;
+          return (
+            <div
+              key={m.days}
+              className="flex flex-col items-center gap-2 p-4 rounded-xl transition-all"
+              style={{
+                background: unlocked ? `${m.color}14` : "#fafafa",
+                border: `1px solid ${unlocked ? `${m.color}40` : "var(--border)"}`,
+                opacity: unlocked ? 1 : 0.55,
+              }}
+            >
+              <div
+                className="w-12 h-12 rounded-full flex items-center justify-center"
+                style={{ background: unlocked ? m.color : "#e4e4e7" }}
+              >
+                <Flame size={22} color="white" strokeWidth={2} />
+              </div>
+              <div
+                className="text-xs font-semibold text-center"
+                style={{ color: unlocked ? "var(--text-primary)" : "var(--text-muted)" }}
+              >
+                {m.label} Streak
+              </div>
+              <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                {unlocked ? "Unlocked" : `${m.days - maxStreak}d to go`}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -248,7 +306,8 @@ function DifficultyBar({ label, solved, total, color }) {
 }
 
 function Heatmap({ data }) {
-  // Group into columns of 7 (oldest first)
+  // Group into columns of 7 (oldest first) — data.length is a multiple of 7,
+  // so every column is full and the grid never has a ragged trailing edge.
   const cols = [];
   for (let i = 0; i < data.length; i += 7) {
     cols.push(data.slice(i, i + 7));
@@ -256,21 +315,15 @@ function Heatmap({ data }) {
   return (
     <div className="flex gap-1 overflow-x-auto pb-1">
       {cols.map((col, ci) => (
-        <div key={ci} className="flex flex-col gap-1">
-          {Array.from({ length: 7 }).map((_, ri) => {
-            const cell = col[ri];
-            if (!cell) {
-              return <div key={ri} className="w-3 h-3" />;
-            }
-            return (
-              <div
-                key={ri}
-                className="w-3 h-3 rounded-sm cursor-pointer transition-transform hover:scale-125"
-                style={{ background: heatColor(cell.level) }}
-                title={`${cell.date}: ${cell.level} submissions`}
-              />
-            );
-          })}
+        <div key={ci} className="flex flex-col gap-1 flex-shrink-0">
+          {col.map((cell, ri) => (
+            <div
+              key={ri}
+              className="w-3.5 h-3.5 rounded-sm cursor-pointer transition-transform hover:scale-125"
+              style={{ background: heatColor(cell.level) }}
+              title={`${cell.date}: ${cell.level} submissions`}
+            />
+          ))}
         </div>
       ))}
     </div>

@@ -219,7 +219,7 @@ export async function fetchUserStats(userId, allProblems) {
       .select("id, problem_id, language, verdict, time_ms, memory_kb, created_at, problems(title)")
       .eq("user_id", userId).eq("kind", "submit")
       .order("created_at", { ascending: false }).limit(8),
-    supabase.from("submissions").select("created_at").eq("user_id", userId).eq("kind", "submit").gte("created_at", isoDaysAgo(90)),
+    supabase.from("submissions").select("created_at").eq("user_id", userId).eq("kind", "submit").gte("created_at", isoDaysAgo(370)),
     supabase.rpc("my_rank"),
   ]);
 
@@ -264,7 +264,7 @@ export async function fetchUserStats(userId, allProblems) {
     countsByDay[k] = (countsByDay[k] || 0) + 1;
   }
   const heatmap = [];
-  for (let i = 89; i >= 0; i--) {
+  for (let i = 370; i >= 0; i--) {
     const iso = isoDaysAgo(i);
     const k = dayKey(iso);
     const count = countsByDay[k] || 0;
