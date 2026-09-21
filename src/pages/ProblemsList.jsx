@@ -7,14 +7,15 @@ import { fetchContests, contestStatus } from "../lib/contestsApi.js";
 import { useCountdown } from "../hooks/useCountdown.js";
 
 export default function ProblemsList({
-  onOpen, onOpenContests, solved, problems, loading, error, source,
+  onOpen, onOpenContests, onOpenSheet, solved, problems, loading, error, source,
   page, totalPages, totalRows, pageSize, onGoToPage,
-  facets, difficultyFilter, companyFilter, onDifficultyChange, onCompanyChange,
+  facets, difficultyFilter, companyFilter, sheetFilter, onDifficultyChange, onCompanyChange, onSheetChange,
 }) {
   const [search, setSearch] = useState("");
   const isApi = source === "api";
   const counts = facets.counts;
   const companies = facets.companies;
+  const sheets = facets.sheets || [];
 
   // Difficulty/company are applied server-side (so counts and pagination
   // stay correct across the whole filtered set) — search stays client-side
@@ -51,6 +52,21 @@ export default function ProblemsList({
       </div>
 
       <BannerRow onOpenContests={onOpenContests} />
+
+      {sheets.length > 0 && (
+        <div className="flex items-center gap-1 mb-5 border-b overflow-x-auto" style={{ borderColor: "var(--border)" }}>
+          <SheetTab active={sheetFilter === "all"} onClick={() => onSheetChange("all")} label="All Problems" />
+          {sheets.map((s) => (
+            <SheetTab
+              key={s.tag}
+              active={sheetFilter === s.tag}
+              onClick={() => (onOpenSheet ? onOpenSheet(s.tag) : onSheetChange(s.tag))}
+              label={s.label}
+              count={s.count}
+            />
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6 items-start">
         <div className="min-w-0">
@@ -414,6 +430,32 @@ function PagerBtn({ children, disabled, onClick }) {
       onMouseLeave={(e) => { if (!disabled) e.currentTarget.style.background = "white"; }}
     >
       {children}
+    </button>
+  );
+}
+
+function SheetTab({ label, count, active, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="px-4 py-2.5 text-sm font-medium flex items-center gap-1.5 whitespace-nowrap transition-colors"
+      style={{
+        color: active ? "var(--accent)" : "var(--text-secondary)",
+        borderBottom: active ? "2px solid var(--accent)" : "2px solid transparent",
+        marginBottom: "-1px",
+      }}
+      onMouseEnter={(e) => { if (!active) e.currentTarget.style.color = "var(--text-primary)"; }}
+      onMouseLeave={(e) => { if (!active) e.currentTarget.style.color = "var(--text-secondary)"; }}
+    >
+      {label}
+      {count != null && (
+        <span
+          className="text-[10px] px-1.5 py-0.5 rounded"
+          style={{ background: active ? "var(--accent-soft)" : "#f4f4f5", color: active ? "var(--accent)" : "var(--text-muted)" }}
+        >
+          {count}
+        </span>
+      )}
     </button>
   );
 }

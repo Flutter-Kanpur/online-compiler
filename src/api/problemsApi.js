@@ -30,7 +30,7 @@ function mapRow(row) {
  * @returns {Promise<{ok: boolean, problems: Array, total: number, error?: string}>}
  */
 export async function fetchProblemsSafe({
-  limit = DEFAULT_PAGE_SIZE, offset = 0, difficulty = "all", company = "all",
+  limit = DEFAULT_PAGE_SIZE, offset = 0, difficulty = "all", company = "all", sheet = "all",
 } = {}) {
   if (!isSupabaseConfigured) {
     return { ok: false, problems: [], total: 0, error: "Supabase isn't configured yet." };
@@ -41,6 +41,7 @@ export async function fetchProblemsSafe({
     let query = supabase.from("problems").select("*", { count: "exact" }).order("created_at", { ascending: true });
     if (difficulty !== "all") query = query.eq("difficulty", difficulty);
     if (company !== "all") query = query.contains("companies", [company]);
+    if (sheet !== "all") query = query.contains("tags", [sheet]);
     const { data, error, count } = await query.range(safeOffset, safeOffset + safeLimit - 1);
     if (error) throw error;
     return { ok: true, problems: (data || []).map(mapRow), total: count || 0 };

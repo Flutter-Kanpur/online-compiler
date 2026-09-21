@@ -70,32 +70,60 @@ export async function bulkUpsertProblems(problems, userId) {
   if (error) throw error;
 }
 
+// Curated list of tag values that represent a "sheet" (a named, external
+// problem list like Striver's SDE Sheet) rather than an ordinary topic tag.
+// Adding a new sheet later just means tagging its problems with a new key
+// here — no schema change needed, since sheets live in the same `tags`
+// column as everything else.
+export const SHEET_TAGS = {
+  "striver-sde-sheet": "Striver SDE Sheet",
+};
+
 /**
- * Global facets for the catalog: difficulty counts and the list of
- * companies present, each with how many problems carry that tag. Computed
- * from every row's (small) difficulty/companies columns rather than a
- * single page, so counts stay accurate regardless of pagination/filters.
+ * Global facets for the catalog: difficulty counts, the list of companies
+ * present, and the list of sheets present, each with how many problems
+ * carry that tag. Computed from every row's (small) difficulty/companies/
+ * tags columns rather than a single page, so counts stay accurate
+ * regardless of pagination/filters.
  */
 export async function fetchCatalogFacets() {
-  const { data, error } = await supabase.from("problems").select("difficulty, companies");
+  const { data, error } = await supabase.from("problems").select("difficulty, companies, tags");
   if (error) throw error;
 
   const counts = { all: data.length, starter: 0, easy: 0, medium: 0, hard: 0 };
   const companyCounts = {};
+  const sheetCounts = {};
   for (const row of data) {
     if (row.difficulty in counts) counts[row.difficulty]++;
     for (const c of row.companies || []) companyCounts[c] = (companyCounts[c] || 0) + 1;
+    for (const t of row.tags || []) {
+      if (t in SHEET_TAGS) sheetCounts[t] = (sheetCounts[t] || 0) + 1;
+    }
   }
   const companies = Object.entries(companyCounts)
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  const sheets = Object.entries(sheetCounts)
+    .map(([tag, count]) => ({ tag, label: SHEET_TAGS[tag], count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 
-  return { counts, companies };
+  return { counts, companies, sheets };
 }
 
 export async function deleteProblem(id) {
   const { error } = await supabase.from("problems").delete().eq("id", id);
   if (error) throw error;
+}
+
+/** Every problem carrying a given sheet tag (e.g. "striver-sde-sheet"), oldest first. */
+export async function fetchSheetProblems(sheetTag) {
+  const { data, error } = await supabase
+    .from("problems")
+    .select("*")
+    .contains("tags", [sheetTag])
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data || []).map(mapProblemRow);
 }
 
 // ---------------------------------------------------------------------------

@@ -15,6 +15,7 @@ import InterviewInterviewer from "./pages/interview/InterviewInterviewer.jsx";
 import ContestsList from "./pages/contests/ContestsList.jsx";
 import ContestWorkspace from "./pages/contests/ContestWorkspace.jsx";
 import ContestLeaderboard from "./pages/contests/ContestLeaderboard.jsx";
+import SheetDetail from "./pages/sheets/SheetDetail.jsx";
 
 // A candidate/interviewer link (e.g. /interview/ab12cd34/candidate) opens
 // straight into that standalone view — no login, no Topbar, no normal app
@@ -83,6 +84,7 @@ function MainApp() {
   const [totalRows, setTotalRows] = useState(0);
   const [difficultyFilter, setDifficultyFilter] = useState("all");
   const [companyFilter, setCompanyFilter] = useState("all");
+  const [sheetFilter, setSheetFilter] = useState("all");
   const [facets, setFacets] = useState(null);
   const pageSize = DEFAULT_PAGE_SIZE;
   const totalPages = totalRows > 0 ? Math.max(1, Math.ceil(totalRows / pageSize)) : 1;
@@ -91,11 +93,12 @@ function MainApp() {
     const safePage = Math.max(1, Math.floor(targetPage));
     const difficulty = overrides.difficulty ?? difficultyFilter;
     const company = overrides.company ?? companyFilter;
+    const sheet = overrides.sheet ?? sheetFilter;
     setLoading(true);
     setFetchError(null);
     const offset = (safePage - 1) * pageSize;
-    const result = await fetchProblemsSafe({ limit: pageSize, offset, difficulty, company });
-    const isUnfiltered = difficulty === "all" && company === "all";
+    const result = await fetchProblemsSafe({ limit: pageSize, offset, difficulty, company, sheet });
+    const isUnfiltered = difficulty === "all" && company === "all" && sheet === "all";
     const dbIsEmpty = isUnfiltered && result.ok && result.total === 0;
     if (result.ok && !dbIsEmpty) {
       setProblems(result.problems);
@@ -116,7 +119,7 @@ function MainApp() {
   function localFacets() {
     const counts = { all: LOCAL_PROBLEMS.length, starter: 0, easy: 0, medium: 0, hard: 0 };
     for (const p of LOCAL_PROBLEMS) if (p.difficulty in counts) counts[p.difficulty]++;
-    return { counts, companies: [] };
+    return { counts, companies: [], sheets: [] };
   }
 
   useEffect(() => {
@@ -135,6 +138,11 @@ function MainApp() {
   function handleCompanyChange(company) {
     setCompanyFilter(company);
     loadProblems(1, { company });
+  }
+
+  function handleSheetChange(sheet) {
+    setSheetFilter(sheet);
+    loadProblems(1, { sheet });
   }
 
   function go(view) {
@@ -183,6 +191,7 @@ function MainApp() {
           <ProblemsList
             onOpen={(p) => go({ name: "problem", problem: p })}
             onOpenContests={() => go({ name: "contests" })}
+            onOpenSheet={(tag) => go({ name: "sheet", sheetTag: tag })}
             solved={solved}
             problems={problems}
             loading={loading}
@@ -193,11 +202,13 @@ function MainApp() {
             totalRows={totalRows}
             pageSize={pageSize}
             onGoToPage={loadProblems}
-            facets={facets || { counts: { all: problems.length, starter: 0, easy: 0, medium: 0, hard: 0 }, companies: [] }}
+            facets={facets || { counts: { all: problems.length, starter: 0, easy: 0, medium: 0, hard: 0 }, companies: [], sheets: [] }}
             difficultyFilter={difficultyFilter}
             companyFilter={companyFilter}
+            sheetFilter={sheetFilter}
             onDifficultyChange={handleDifficultyChange}
             onCompanyChange={handleCompanyChange}
+            onSheetChange={handleSheetChange}
           />
         )}
         {view.name === "problem" && (
@@ -205,6 +216,14 @@ function MainApp() {
             problem={view.problem}
             onBack={() => go({ name: "list" })}
             onSolved={markSolved}
+          />
+        )}
+        {view.name === "sheet" && (
+          <SheetDetail
+            sheetTag={view.sheetTag}
+            solved={solved}
+            onOpen={(p) => go({ name: "problem", problem: p })}
+            onBack={() => go({ name: "list" })}
           />
         )}
         {view.name === "profile" && (
