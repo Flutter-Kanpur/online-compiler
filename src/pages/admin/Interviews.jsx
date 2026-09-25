@@ -10,6 +10,7 @@ export default function Interviews() {
   const [problemsLoading, setProblemsLoading] = useState(true);
   const [selected, setSelected] = useState(new Set());
   const [title, setTitle] = useState("");
+  const [candidateCount, setCandidateCount] = useState("1");
   const [timeLimitMinutes, setTimeLimitMinutes] = useState("");
   const [expiresAfterHours, setExpiresAfterHours] = useState("8");
   const [flutterRound, setFlutterRound] = useState(false);
@@ -18,8 +19,10 @@ export default function Interviews() {
   const [webuiRound, setWebuiRound] = useState(false);
   const [webuiPrompt, setWebuiPrompt] = useState("");
   const [creating, setCreating] = useState(false);
+  const [creatingIndex, setCreatingIndex] = useState(0);
   const [createError, setCreateError] = useState(null);
-  const [lastCreated, setLastCreated] = useState(null);
+  const [lastCreatedRooms, setLastCreatedRooms] = useState([]);
+  const [copiedAll, setCopiedAll] = useState(false);
 
   const [interviews, setInterviews] = useState([]);
   const [serverDown, setServerDown] = useState(false);
@@ -50,21 +53,33 @@ export default function Interviews() {
 
   async function handleCreate() {
     if (selected.size === 0 && !flutterRound && !webuiRound) return;
+    const count = Math.max(1, Math.min(50, Math.floor(Number(candidateCount)) || 1));
     setCreating(true);
     setCreateError(null);
+    setLastCreatedRooms([]);
+    const rooms = [];
     try {
-      const room = await createInterview({
-        title, problemIds: [...selected], flutterRound,
-        flutterGistId: flutterGistId.trim() || null,
-        flutterPrompt: flutterPrompt.trim() || null,
-        webuiRound,
-        webuiPrompt: webuiPrompt.trim() || null,
-        timeLimitMinutes: timeLimitMinutes.trim() ? Number(timeLimitMinutes) : null,
-        expiresAfterHours: Number(expiresAfterHours),
-      });
-      setLastCreated(room);
+      for (let i = 0; i < count; i++) {
+        setCreatingIndex(i + 1);
+        // With more than one link, number each room's title so "Active
+        // interviews" and "Interview history" can tell candidates apart —
+        // a single room's title stays exactly as typed.
+        const roomTitle = count > 1 && title.trim() ? `${title.trim()} — Candidate ${i + 1}` : title;
+        const room = await createInterview({
+          title: roomTitle, problemIds: [...selected], flutterRound,
+          flutterGistId: flutterGistId.trim() || null,
+          flutterPrompt: flutterPrompt.trim() || null,
+          webuiRound,
+          webuiPrompt: webuiPrompt.trim() || null,
+          timeLimitMinutes: timeLimitMinutes.trim() ? Number(timeLimitMinutes) : null,
+          expiresAfterHours: Number(expiresAfterHours),
+        });
+        rooms.push(room);
+      }
+      setLastCreatedRooms(rooms);
       setSelected(new Set());
       setTitle("");
+      setCandidateCount("1");
       setTimeLimitMinutes("");
       setExpiresAfterHours("8");
       setFlutterRound(false);
@@ -74,9 +89,24 @@ export default function Interviews() {
       setWebuiPrompt("");
       refresh();
     } catch (e) {
-      setCreateError(e.message);
+      // Keep whatever rooms already got created (each is fully usable on
+      // its own) instead of throwing them away on a later failure.
+      if (rooms.length > 0) setLastCreatedRooms(rooms);
+      setCreateError(`${e.message}${rooms.length > 0 ? ` — ${rooms.length} of ${count} were created before this failed.` : ""}`);
     } finally {
       setCreating(false);
+      setCreatingIndex(0);
+    }
+  }
+
+  async function handleCopyAllCandidateLinks() {
+    const text = lastCreatedRooms.map((r) => `${r.title}: ${candidateLink(r.roomId)}`).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 1500);
+    } catch {
+      // clipboard API unavailable — links are still visible to copy by hand
     }
   }
 
@@ -113,7 +143,24 @@ export default function Interviews() {
           className="input-field mb-4"
         />
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+          <div>
+            <label className="text-xs font-medium mb-1 block" style={{ color: "var(--text-secondary)" }}>
+              Number of candidates
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="50"
+              step="1"
+              value={candidateCount}
+              onChange={(e) => setCandidateCount(e.target.value)}
+              className="input-field"
+            />
+            <p className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>
+              Creates this many separate rooms, each with its own unique candidate link.
+            </p>
+          </div>
           <div>
             <label className="text-xs font-medium mb-1 block" style={{ color: "var(--text-secondary)" }}>
               Link stays valid for
@@ -230,19 +277,46 @@ export default function Interviews() {
           <div className="text-xs mb-3" style={{ color: "#b91c1c" }}>{createError}</div>
         )}
 
-        <button className="btn-primary" disabled={(selected.size === 0 && !flutterRound && !webuiRound) || creating} onClick={handleCreate}>
-          <Video size={14} />
-          {creating ? "Creating…" : `Create interview (${selected.size} problem${selected.size === 1 ? "" : "s"}${flutterRound ? " + Flutter round" : ""}${webuiRound ? " + Web UI round" : ""})`}
-        </button>
+        {(() => {
+          const count = Math.max(1, Math.min(50, Math.floor(Number(candidateCount)) || 1));
+          return (
+            <button className="btn-primary" disabled={(selected.size === 0 && !flutterRound && !webuiRound) || creating} onClick={handleCreate}>
+              <Video size={14} />
+              {creating
+                ? `Creating ${creatingIndex} of ${count}…`
+                : `Create ${count} interview${count === 1 ? "" : "s"} (${selected.size} problem${selected.size === 1 ? "" : "s"}${flutterRound ? " + Flutter round" : ""}${webuiRound ? " + Web UI round" : ""})`}
+            </button>
+          );
+        })()}
       </div>
 
-      {lastCreated && (
+      {lastCreatedRooms.length > 0 && (
         <div className="card p-5" style={{ borderColor: "var(--accent)" }}>
-          <div className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-            "{lastCreated.title}" is ready
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+              {lastCreatedRooms.length === 1 ? `"${lastCreatedRooms[0].title}" is ready` : `${lastCreatedRooms.length} interviews ready`}
+            </div>
+            {lastCreatedRooms.length > 1 && (
+              <button onClick={handleCopyAllCandidateLinks} className="btn-ghost text-xs !px-2 !py-1">
+                {copiedAll ? <Check size={12} /> : <Copy size={12} />} Copy all candidate links
+              </button>
+            )}
           </div>
-          <LinkRow label="Candidate link" url={candidateLink(lastCreated.roomId)} />
-          <LinkRow label="Interviewer link (open this yourself)" url={interviewerLink(lastCreated.roomId)} primary />
+          <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+            {lastCreatedRooms.map((room) => (
+              <div
+                key={room.roomId}
+                className={lastCreatedRooms.length > 1 ? "pb-3 border-b last:border-0 last:pb-0" : ""}
+                style={{ borderColor: "var(--border)" }}
+              >
+                {lastCreatedRooms.length > 1 && (
+                  <div className="text-xs font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>{room.title}</div>
+                )}
+                <LinkRow label="Candidate link" url={candidateLink(room.roomId)} compact={lastCreatedRooms.length > 1} />
+                <LinkRow label="Interviewer link (open this yourself)" url={interviewerLink(room.roomId)} primary compact={lastCreatedRooms.length > 1} />
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
