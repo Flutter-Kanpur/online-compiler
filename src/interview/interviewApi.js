@@ -1,8 +1,16 @@
-// REST + WebSocket client for the interview relay server (server/index.js).
-// Requests go through Vite's dev proxy (/api/interviews, /ws/interview/*)
-// so this file never hardcodes a backend host/port.
-
-const BASE = "/api/interviews";
+// REST + WebSocket client for the interview relay server (server/index.js) —
+// a separate, always-on Node process, not something static hosting (Vercel,
+// GitHub Pages, Netlify) can run.
+//
+// Locally, requests go through Vite's dev proxy (/api/interviews,
+// /ws/interview/*, see vite.config.js), which forwards same-origin relative
+// URLs to http://localhost:8787 — so VITE_INTERVIEW_SERVER_URL can stay
+// unset for local dev. In production there's no such proxy, so the relay
+// server has to be deployed on its own (e.g. Render) and this env var points
+// requests at its real URL instead of the deployed frontend's own origin
+// (which has no backend behind it and would otherwise always 404).
+const SERVER_URL = (import.meta.env.VITE_INTERVIEW_SERVER_URL || "").replace(/\/+$/, "");
+const BASE = `${SERVER_URL}/api/interviews`;
 
 async function asJson(res) {
   if (!res.ok) {
@@ -50,6 +58,11 @@ export function interviewerLink(roomId) {
 }
 
 export function interviewWsUrl(roomId, role) {
+  if (SERVER_URL) {
+    // "https"->"ws" leaves the trailing "s" in place, so this also
+    // correctly turns "https://" into "wss://" (and "http://" into "ws://").
+    return `${SERVER_URL.replace(/^http/, "ws")}/ws/interview/${roomId}?role=${role}`;
+  }
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
   return `${proto}://${window.location.host}/ws/interview/${roomId}?role=${role}`;
 }
