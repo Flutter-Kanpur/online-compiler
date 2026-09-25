@@ -115,7 +115,7 @@ function roomExpiryMs(room) {
   return (room.expiresAfterHours ?? DEFAULT_ROOM_TTL_HOURS) * 60 * 60 * 1000;
 }
 
-function makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours }) {
+function makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours, isTemplate }) {
   const id = nanoid(8);
   const room = {
     id,
@@ -128,6 +128,7 @@ function makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPromp
     webuiPrompt: webuiPrompt && webuiPrompt.trim() ? webuiPrompt.trim() : null,
     timeLimitMinutes: normalizeTimeLimitMinutes(timeLimitMinutes),
     expiresAfterHours: normalizeExpiresAfterHours(expiresAfterHours),
+    isTemplate: !!isTemplate,
     createdAt: Date.now(),
     candidateSocket: null,
     interviewerSockets: new Set(),
@@ -173,6 +174,7 @@ function roomToRow(room) {
     webui_prompt: room.webuiPrompt,
     time_limit_minutes: room.timeLimitMinutes,
     expires_after_hours: room.expiresAfterHours,
+    is_template: room.isTemplate,
     state: stateForPersist(room.state),
     created_at: new Date(room.createdAt).toISOString(),
   };
@@ -190,6 +192,7 @@ function rowToRoom(row) {
     webuiPrompt: row.webui_prompt,
     timeLimitMinutes: row.time_limit_minutes ?? null,
     expiresAfterHours: row.expires_after_hours ?? DEFAULT_ROOM_TTL_HOURS,
+    isTemplate: !!row.is_template,
     createdAt: new Date(row.created_at).getTime(),
     candidateSocket: null,
     interviewerSockets: new Set(),
@@ -405,6 +408,7 @@ function roomSummary(room) {
     webuiPrompt: room.webuiPrompt,
     timeLimitMinutes: room.timeLimitMinutes,
     expiresAfterHours: room.expiresAfterHours,
+    isTemplate: !!room.isTemplate,
     testStartedAt: room.state.testStartedAt ?? null,
     createdAt: room.createdAt,
     candidateConnected: room.state.candidateConnected,
@@ -414,7 +418,7 @@ function roomSummary(room) {
 }
 
 app.post("/api/interviews", (req, res) => {
-  const { title, problemIds = [], flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours } = req.body || {};
+  const { title, problemIds = [], flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours, isTemplate } = req.body || {};
   if (!Array.isArray(problemIds)) {
     return res.status(400).json({ error: "problemIds must be an array" });
   }
@@ -429,8 +433,33 @@ app.post("/api/interviews", (req, res) => {
   if (expiresAfterHours != null && expiresAfterHours !== "" && !(Number.isFinite(Number(expiresAfterHours)) && Number(expiresAfterHours) > 0)) {
     return res.status(400).json({ error: "expiresAfterHours must be a positive number" });
   }
-  const room = makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours });
+  const room = makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours, isTemplate });
   res.json(roomSummary(room));
+});
+
+// Forks a reusable template room into a brand-new, fully independent room
+// for one candidate — the only legitimate way a template ever turns into a
+// real, joinable session (see the upgrade handler's matching guard below).
+app.post("/api/interviews/:roomId/fork", async (req, res) => {
+  let room = rooms.get(req.params.roomId);
+  if (!room) room = await tryRehydrateOne(req.params.roomId);
+  if (!room) return res.status(404).json({ error: "interview not found" });
+  if (!room.isTemplate) return res.status(400).json({ error: "this interview is not a reusable link" });
+  const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+  if (!name) return res.status(400).json({ error: "name is required" });
+  const forked = makeRoom({
+    title: room.title,
+    problemIds: room.problemIds,
+    flutterRound: room.flutterRound,
+    flutterGistId: room.flutterGistId,
+    flutterPrompt: room.flutterPrompt,
+    webuiRound: room.webuiRound,
+    webuiPrompt: room.webuiPrompt,
+    timeLimitMinutes: room.timeLimitMinutes,
+    expiresAfterHours: room.expiresAfterHours,
+    isTemplate: false,
+  });
+  res.json(roomSummary(forked));
 });
 
 app.get("/api/interviews", (_req, res) => {
@@ -471,7 +500,9 @@ server.on("upgrade", (req, socket, head) => {
   (async () => {
     let room = rooms.get(roomId);
     if (!room) room = await tryRehydrateOne(roomId);
-    if (!room || socket.destroyed) {
+    // A template room is never itself a live session — the only legitimate
+    // path onto a real one is fork-then-redirect (see the /fork route).
+    if (!room || socket.destroyed || (role === "candidate" && room.isTemplate)) {
       if (!socket.destroyed) socket.destroy();
       return;
     }

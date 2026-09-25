@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Video, Copy, Check, ExternalLink, X, AlertTriangle, User, Loader2, Smartphone, Globe, Clock } from "lucide-react";
+import { Video, Copy, Check, ExternalLink, X, AlertTriangle, User, Loader2, Smartphone, Globe, Clock, Link2 } from "lucide-react";
 import { fetchAllProblems } from "../../lib/db.js";
 import {
   createInterview, listInterviews, endInterview, candidateLink, interviewerLink,
@@ -11,6 +11,7 @@ export default function Interviews() {
   const [selected, setSelected] = useState(new Set());
   const [title, setTitle] = useState("");
   const [candidateCount, setCandidateCount] = useState("1");
+  const [isTemplate, setIsTemplate] = useState(false);
   const [timeLimitMinutes, setTimeLimitMinutes] = useState("");
   const [expiresAfterHours, setExpiresAfterHours] = useState("8");
   const [flutterRound, setFlutterRound] = useState(false);
@@ -53,7 +54,10 @@ export default function Interviews() {
 
   async function handleCreate() {
     if (selected.size === 0 && !flutterRound && !webuiRound) return;
-    const count = Math.max(1, Math.min(50, Math.floor(Number(candidateCount)) || 1));
+    // A reusable link is always exactly one room — the "Number of
+    // candidates" batch loop doesn't apply, since each candidate gets a
+    // freshly-forked room on demand instead of a pre-generated one.
+    const count = isTemplate ? 1 : Math.max(1, Math.min(50, Math.floor(Number(candidateCount)) || 1));
     setCreating(true);
     setCreateError(null);
     setLastCreatedRooms([]);
@@ -73,6 +77,7 @@ export default function Interviews() {
           webuiPrompt: webuiPrompt.trim() || null,
           timeLimitMinutes: timeLimitMinutes.trim() ? Number(timeLimitMinutes) : null,
           expiresAfterHours: Number(expiresAfterHours),
+          isTemplate,
         });
         rooms.push(room);
       }
@@ -80,6 +85,7 @@ export default function Interviews() {
       setSelected(new Set());
       setTitle("");
       setCandidateCount("1");
+      setIsTemplate(false);
       setTimeLimitMinutes("");
       setExpiresAfterHours("8");
       setFlutterRound(false);
@@ -143,6 +149,14 @@ export default function Interviews() {
           className="input-field mb-4"
         />
 
+        <label
+          className="flex items-center gap-2.5 text-sm font-medium cursor-pointer rounded-lg p-3 mb-4"
+          style={{ background: "#fafafa", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+        >
+          <input type="checkbox" checked={isTemplate} onChange={(e) => setIsTemplate(e.target.checked)} />
+          <Link2 size={14} /> Reusable link (one link, unlimited candidates — each gets their own private room automatically)
+        </label>
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
           <div>
             <label className="text-xs font-medium mb-1 block" style={{ color: "var(--text-secondary)" }}>
@@ -155,10 +169,14 @@ export default function Interviews() {
               step="1"
               value={candidateCount}
               onChange={(e) => setCandidateCount(e.target.value)}
+              disabled={isTemplate}
               className="input-field"
+              style={isTemplate ? { opacity: 0.5 } : undefined}
             />
             <p className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>
-              Creates this many separate rooms, each with its own unique candidate link.
+              {isTemplate
+                ? "Not used for a reusable link — each candidate forks their own room."
+                : "Creates this many separate rooms, each with its own unique candidate link."}
             </p>
           </div>
           <div>
@@ -278,13 +296,16 @@ export default function Interviews() {
         )}
 
         {(() => {
-          const count = Math.max(1, Math.min(50, Math.floor(Number(candidateCount)) || 1));
+          const count = isTemplate ? 1 : Math.max(1, Math.min(50, Math.floor(Number(candidateCount)) || 1));
+          const suffix = `(${selected.size} problem${selected.size === 1 ? "" : "s"}${flutterRound ? " + Flutter round" : ""}${webuiRound ? " + Web UI round" : ""})`;
           return (
             <button className="btn-primary" disabled={(selected.size === 0 && !flutterRound && !webuiRound) || creating} onClick={handleCreate}>
               <Video size={14} />
               {creating
-                ? `Creating ${creatingIndex} of ${count}…`
-                : `Create ${count} interview${count === 1 ? "" : "s"} (${selected.size} problem${selected.size === 1 ? "" : "s"}${flutterRound ? " + Flutter round" : ""}${webuiRound ? " + Web UI round" : ""})`}
+                ? (isTemplate ? "Creating reusable link…" : `Creating ${creatingIndex} of ${count}…`)
+                : isTemplate
+                  ? `Create reusable link ${suffix}`
+                  : `Create ${count} interview${count === 1 ? "" : "s"} ${suffix}`}
             </button>
           );
         })()}
@@ -294,7 +315,9 @@ export default function Interviews() {
         <div className="card p-5" style={{ borderColor: "var(--accent)" }}>
           <div className="flex items-center justify-between mb-3">
             <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-              {lastCreatedRooms.length === 1 ? `"${lastCreatedRooms[0].title}" is ready` : `${lastCreatedRooms.length} interviews ready`}
+              {lastCreatedRooms[0]?.isTemplate
+                ? "Reusable link ready"
+                : lastCreatedRooms.length === 1 ? `"${lastCreatedRooms[0].title}" is ready` : `${lastCreatedRooms.length} interviews ready`}
             </div>
             {lastCreatedRooms.length > 1 && (
               <button onClick={handleCopyAllCandidateLinks} className="btn-ghost text-xs !px-2 !py-1">
@@ -312,8 +335,20 @@ export default function Interviews() {
                 {lastCreatedRooms.length > 1 && (
                   <div className="text-xs font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>{room.title}</div>
                 )}
-                <LinkRow label="Candidate link" url={candidateLink(room.roomId)} compact={lastCreatedRooms.length > 1} />
-                <LinkRow label="Interviewer link (open this yourself)" url={interviewerLink(room.roomId)} primary compact={lastCreatedRooms.length > 1} />
+                {room.isTemplate ? (
+                  <>
+                    <LinkRow label="Reusable candidate link — share with anyone" url={candidateLink(room.roomId)} />
+                    <p className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>
+                      Every candidate who opens this link and enters their name gets their own private room. Watch
+                      each session from "Active interviews" below once they join.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <LinkRow label="Candidate link" url={candidateLink(room.roomId)} compact={lastCreatedRooms.length > 1} />
+                    <LinkRow label="Interviewer link (open this yourself)" url={interviewerLink(room.roomId)} primary compact={lastCreatedRooms.length > 1} />
+                  </>
+                )}
               </div>
             ))}
           </div>
@@ -331,6 +366,12 @@ export default function Interviews() {
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                     {r.title}
+                    {r.isTemplate && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                            style={{ background: "#dcfce7", color: "#166534" }}>
+                        <Link2 size={10} /> Reusable link
+                      </span>
+                    )}
                     {r.flutterRound && (
                       <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
                             style={{ background: "#e0f2fe", color: "#0369a1" }}>

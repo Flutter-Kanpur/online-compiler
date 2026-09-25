@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Play, Send, Loader2, Wifi, WifiOff, Zap, Smartphone, Globe, CheckCircle2, X } from "lucide-react";
 import { fetchAllProblems } from "../../lib/db.js";
-import { getInterview, endInterview, dartpadEmbedUrl, buildWebUIDoc } from "../../interview/interviewApi.js";
+import { getInterview, endInterview, forkInterview, dartpadEmbedUrl, buildWebUIDoc } from "../../interview/interviewApi.js";
 import { useInterviewSocket } from "../../interview/useInterviewSocket.js";
 import { useCountdown } from "../../interview/countdown.js";
 import {
@@ -23,15 +23,41 @@ export default function InterviewCandidate({ roomId }) {
   const [problemsById, setProblemsById] = useState(null);
   const [name, setName] = useState("");
   const [joined, setJoined] = useState(false);
+  const [forking, setForking] = useState(false);
+  const [forkError, setForkError] = useState(null);
+
+  // Read once, like App.jsx's own one-time route parse — this app has no
+  // client-side router, so a freshly-forked room (see handleTemplateJoin
+  // below) has to arrive here via a real navigation, and this is how the
+  // candidate's name survives that trip without asking them to type it twice.
+  const nameFromFork = useMemo(() => new URLSearchParams(window.location.search).get("name"), []);
 
   useEffect(() => {
     getInterview(roomId)
-      .then(setRoom)
+      .then((r) => {
+        setRoom(r);
+        if (nameFromFork) {
+          setName(nameFromFork);
+          setJoined(true);
+        }
+      })
       .catch((e) => setRoomError(e.message));
     fetchAllProblems()
       .then((list) => setProblemsById(Object.fromEntries(list.map((p) => [p.id, p]))))
       .catch(() => setProblemsById({}));
-  }, [roomId]);
+  }, [roomId, nameFromFork]);
+
+  async function handleTemplateJoin(enteredName) {
+    setForking(true);
+    setForkError(null);
+    try {
+      const forked = await forkInterview(roomId, enteredName);
+      window.location.replace(`/interview/${forked.roomId}/candidate?name=${encodeURIComponent(enteredName)}`);
+    } catch (e) {
+      setForkError(e.message);
+      setForking(false);
+    }
+  }
 
   if (roomError) return <CenteredMessage title="This interview link isn't valid" detail={roomError} />;
   if (!room || !problemsById) return <CenteredMessage title="Loading interview…" spinner />;
@@ -42,7 +68,9 @@ export default function InterviewCandidate({ roomId }) {
         title={room.title}
         name={name}
         setName={setName}
-        onJoin={() => setJoined(true)}
+        onJoin={() => (room.isTemplate ? handleTemplateJoin(name) : setJoined(true))}
+        joining={forking}
+        error={forkError}
       />
     );
   }
@@ -50,7 +78,7 @@ export default function InterviewCandidate({ roomId }) {
   return <CandidateWorkspace room={room} problemsById={problemsById} candidateName={name} roomId={roomId} />;
 }
 
-function NameGate({ title, name, setName, onJoin }) {
+function NameGate({ title, name, setName, onJoin, joining, error }) {
   return (
     <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "var(--bg-app)" }}>
       <div className="card p-8 w-full max-w-sm text-center">
@@ -68,16 +96,17 @@ function NameGate({ title, name, setName, onJoin }) {
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) onJoin(); }}
+          onKeyDown={(e) => { if (e.key === "Enter" && name.trim() && !joining) onJoin(); }}
           placeholder="Your name"
           className="input-field mb-4 text-center"
         />
+        {error && <p className="text-xs mb-3" style={{ color: "#b91c1c" }}>{error}</p>}
         <button
           className="btn-primary w-full justify-center"
-          disabled={!name.trim()}
+          disabled={!name.trim() || joining}
           onClick={onJoin}
         >
-          Start interview
+          {joining ? "Starting your session…" : "Start interview"}
         </button>
       </div>
     </div>

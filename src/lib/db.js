@@ -161,6 +161,7 @@ export async function fetchInterviewRoomsHistory({ limit = 50 } = {}) {
   const { data, error } = await supabase
     .from("interview_rooms")
     .select("id, title, problem_ids, created_at, candidate_name:state->>candidateName")
+    .eq("is_template", false)
     .order("created_at", { ascending: false })
     .limit(limit);
   if (error) throw error;

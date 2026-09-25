@@ -27,6 +27,15 @@ export default function InterviewInterviewer({ roomId }) {
   if (roomError) return <CenteredMessage title="This interview link isn't valid" detail={roomError} />;
   if (!room || !problemsById) return <CenteredMessage title="Loading interview…" spinner />;
 
+  if (room.isTemplate) {
+    return (
+      <CenteredMessage
+        title="This is a reusable candidate link"
+        detail="Nobody interviews this link directly — each candidate who opens it gets their own private room. Watch individual sessions from the admin panel's Active interviews list."
+      />
+    );
+  }
+
   return <InterviewerWatch room={room} problemsById={problemsById} roomId={roomId} />;
 }
 
