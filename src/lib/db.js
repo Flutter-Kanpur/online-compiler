@@ -149,6 +149,35 @@ export async function insertSubmission({
   if (error) throw error;
 }
 
+// ---------------------------------------------------------------------------
+// interview submission history (admin review — see server/index.js's
+// persistInterviewSubmission, which writes interview_submissions via the
+// service-role key; these are read-only, RLS-gated to admins)
+// ---------------------------------------------------------------------------
+
+/** Past interviews, newest first — sourced from interview_rooms directly (not
+ * the relay server's in-memory list) so ended/swept rooms still show up. */
+export async function fetchInterviewRoomsHistory({ limit = 50 } = {}) {
+  const { data, error } = await supabase
+    .from("interview_rooms")
+    .select("id, title, problem_ids, created_at, candidate_name:state->>candidateName")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
+}
+
+/** All submit attempts for one interview room, newest first. */
+export async function fetchInterviewSubmissions(roomId) {
+  const { data, error } = await supabase
+    .from("interview_submissions")
+    .select("*")
+    .eq("room_id", roomId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
 export async function markSolved(userId, problemId) {
   const { error } = await supabase
     .from("solved_problems")

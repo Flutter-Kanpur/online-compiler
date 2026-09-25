@@ -12,11 +12,11 @@ async function asJson(res) {
   return res.json();
 }
 
-export function createInterview({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt }) {
+export function createInterview({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours }) {
   return fetch(BASE, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt }),
+    body: JSON.stringify({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours }),
   }).then(asJson);
 }
 

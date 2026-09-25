@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Video, Copy, Check, ExternalLink, X, AlertTriangle, User, Loader2, Smartphone, Globe } from "lucide-react";
+import { Video, Copy, Check, ExternalLink, X, AlertTriangle, User, Loader2, Smartphone, Globe, Clock } from "lucide-react";
 import { fetchAllProblems } from "../../lib/db.js";
 import {
   createInterview, listInterviews, endInterview, candidateLink, interviewerLink,
@@ -10,6 +10,8 @@ export default function Interviews() {
   const [problemsLoading, setProblemsLoading] = useState(true);
   const [selected, setSelected] = useState(new Set());
   const [title, setTitle] = useState("");
+  const [timeLimitMinutes, setTimeLimitMinutes] = useState("");
+  const [expiresAfterHours, setExpiresAfterHours] = useState("8");
   const [flutterRound, setFlutterRound] = useState(false);
   const [flutterGistId, setFlutterGistId] = useState("");
   const [flutterPrompt, setFlutterPrompt] = useState("");
@@ -57,10 +59,14 @@ export default function Interviews() {
         flutterPrompt: flutterPrompt.trim() || null,
         webuiRound,
         webuiPrompt: webuiPrompt.trim() || null,
+        timeLimitMinutes: timeLimitMinutes.trim() ? Number(timeLimitMinutes) : null,
+        expiresAfterHours: Number(expiresAfterHours),
       });
       setLastCreated(room);
       setSelected(new Set());
       setTitle("");
+      setTimeLimitMinutes("");
+      setExpiresAfterHours("8");
       setFlutterRound(false);
       setFlutterGistId("");
       setFlutterPrompt("");
@@ -106,6 +112,44 @@ export default function Interviews() {
           placeholder="Round title (optional) — e.g. FKCCL Organizer Round 1"
           className="input-field mb-4"
         />
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+          <div>
+            <label className="text-xs font-medium mb-1 block" style={{ color: "var(--text-secondary)" }}>
+              Link stays valid for
+            </label>
+            <select
+              value={expiresAfterHours}
+              onChange={(e) => setExpiresAfterHours(e.target.value)}
+              className="input-field"
+            >
+              <option value="8">8 hours (default)</option>
+              <option value="24">24 hours</option>
+              <option value="72">3 days</option>
+              <option value="168">7 days</option>
+            </select>
+            <p className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>
+              How long the link can be opened at all, before anyone joins.
+            </p>
+          </div>
+          <div>
+            <label className="text-xs font-medium mb-1 block" style={{ color: "var(--text-secondary)" }}>
+              Time limit once a candidate joins
+            </label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={timeLimitMinutes}
+              onChange={(e) => setTimeLimitMinutes(e.target.value)}
+              placeholder="Minutes (optional — leave blank for no limit)"
+              className="input-field"
+            />
+            <p className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>
+              Countdown starts when the candidate opens the link and enters their name.
+            </p>
+          </div>
+        </div>
 
         {problemsLoading ? (
           <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin" style={{ color: "var(--accent)" }} /></div>
@@ -225,6 +269,18 @@ export default function Interviews() {
                         <Globe size={10} /> Web UI
                       </span>
                     )}
+                    {r.timeLimitMinutes && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                            style={{ background: "#fef3c7", color: "#92400e" }}>
+                        <Clock size={10} /> {r.timeLimitMinutes} min
+                      </span>
+                    )}
+                    {r.expiresAfterHours && r.expiresAfterHours !== 8 && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                            style={{ background: "#dbeafe", color: "#1d4ed8" }}>
+                        <Clock size={10} /> link valid {formatExpiryLabel(r.expiresAfterHours)}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <StatusPill connected={r.candidateConnected} label={r.candidateConnected ? "candidate live" : "candidate offline"} />
@@ -251,6 +307,14 @@ export default function Interviews() {
       </div>
     </div>
   );
+}
+
+function formatExpiryLabel(hours) {
+  if (hours % 24 === 0) {
+    const days = hours / 24;
+    return `${days}d`;
+  }
+  return `${hours}h`;
 }
 
 function LinkRow({ label, url, primary, compact }) {

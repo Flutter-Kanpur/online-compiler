@@ -11,15 +11,18 @@ export function useInterviewSocket(roomId, role, onMessage) {
   const wsRef = useRef(null);
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
+  // Lets a caller permanently stop reconnect attempts (e.g. once the
+  // interview has ended) without waiting for the component to unmount.
+  const cancelledRef = useRef(false);
 
   useEffect(() => {
     if (!roomId) return;
-    let cancelled = false;
+    cancelledRef.current = false;
     let retryDelay = 1000;
     let ws;
 
     function connect() {
-      if (cancelled) return;
+      if (cancelledRef.current) return;
       ws = new WebSocket(interviewWsUrl(roomId, role));
       wsRef.current = ws;
 
@@ -29,7 +32,7 @@ export function useInterviewSocket(roomId, role, onMessage) {
       };
       ws.onclose = () => {
         setConnected(false);
-        if (!cancelled) {
+        if (!cancelledRef.current) {
           setTimeout(connect, retryDelay);
           retryDelay = Math.min(retryDelay * 1.5, 8000);
         }
@@ -46,7 +49,7 @@ export function useInterviewSocket(roomId, role, onMessage) {
 
     connect();
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
       wsRef.current?.close();
     };
   }, [roomId, role]);
@@ -56,5 +59,10 @@ export function useInterviewSocket(roomId, role, onMessage) {
     if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
   }, []);
 
-  return { connected, send };
+  const stop = useCallback(() => {
+    cancelledRef.current = true;
+    wsRef.current?.close();
+  }, []);
+
+  return { connected, send, stop };
 }

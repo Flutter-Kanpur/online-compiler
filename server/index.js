@@ -43,7 +43,11 @@ function loadDotEnvIfPresent() {
 loadDotEnvIfPresent();
 
 const PORT = process.env.PORT || 8787;
-const ROOM_TTL_MS = 8 * 60 * 60 * 1000; // rooms are swept 8h after creation
+// Default room lifetime when the interviewer doesn't set one explicitly —
+// each room actually expires per its own `expiresAfterHours` (see
+// normalizeExpiresAfterHours/roomExpiryMs), not this global constant; it's
+// only the fallback default and the boot-query's outer sanity bound.
+const DEFAULT_ROOM_TTL_HOURS = 8;
 const PERSIST_DEBOUNCE_MS = 900;
 
 // Interview rooms persist to Supabase (interview_rooms table, see
@@ -82,6 +86,8 @@ app.use(express.json());
 const rooms = new Map();
 /** @type {Map<string, NodeJS.Timeout>} */
 const pendingPersists = new Map();
+/** @type {Map<string, NodeJS.Timeout>} */
+const autoEndTimers = new Map();
 
 const DEFAULT_WEBUI = {
   html: `<div class="card">\n  <h1>Hello!</h1>\n  <p>Start building.</p>\n</div>`,
@@ -89,7 +95,27 @@ const DEFAULT_WEBUI = {
   js: `// your code here`,
 };
 
-function makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt }) {
+/** blank/0/invalid -> null ("no limit" — never schedules a timer, never shown in either UI). */
+function normalizeTimeLimitMinutes(timeLimitMinutes) {
+  const n = Number(timeLimitMinutes);
+  return timeLimitMinutes != null && timeLimitMinutes !== "" && Number.isFinite(n) && n > 0
+    ? Math.floor(n)
+    : null;
+}
+
+/** blank/0/invalid -> the default (how long a room stays joinable before anyone's clicked the link). */
+function normalizeExpiresAfterHours(expiresAfterHours) {
+  const n = Number(expiresAfterHours);
+  return expiresAfterHours != null && expiresAfterHours !== "" && Number.isFinite(n) && n > 0
+    ? n
+    : DEFAULT_ROOM_TTL_HOURS;
+}
+
+function roomExpiryMs(room) {
+  return (room.expiresAfterHours ?? DEFAULT_ROOM_TTL_HOURS) * 60 * 60 * 1000;
+}
+
+function makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours }) {
   const id = nanoid(8);
   const room = {
     id,
@@ -100,6 +126,8 @@ function makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPromp
     flutterPrompt: flutterPrompt && flutterPrompt.trim() ? flutterPrompt.trim() : null,
     webuiRound: !!webuiRound,
     webuiPrompt: webuiPrompt && webuiPrompt.trim() ? webuiPrompt.trim() : null,
+    timeLimitMinutes: normalizeTimeLimitMinutes(timeLimitMinutes),
+    expiresAfterHours: normalizeExpiresAfterHours(expiresAfterHours),
     createdAt: Date.now(),
     candidateSocket: null,
     interviewerSockets: new Set(),
@@ -111,6 +139,7 @@ function makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPromp
       webui: { ...DEFAULT_WEBUI },
       candidateName: null,
       candidateConnected: false,
+      testStartedAt: null,
     },
   };
   rooms.set(id, room);
@@ -142,6 +171,8 @@ function roomToRow(room) {
     flutter_prompt: room.flutterPrompt,
     webui_round: room.webuiRound,
     webui_prompt: room.webuiPrompt,
+    time_limit_minutes: room.timeLimitMinutes,
+    expires_after_hours: room.expiresAfterHours,
     state: stateForPersist(room.state),
     created_at: new Date(room.createdAt).toISOString(),
   };
@@ -157,6 +188,8 @@ function rowToRoom(row) {
     flutterPrompt: row.flutter_prompt,
     webuiRound: row.webui_round,
     webuiPrompt: row.webui_prompt,
+    timeLimitMinutes: row.time_limit_minutes ?? null,
+    expiresAfterHours: row.expires_after_hours ?? DEFAULT_ROOM_TTL_HOURS,
     createdAt: new Date(row.created_at).getTime(),
     candidateSocket: null,
     interviewerSockets: new Set(),
@@ -184,6 +217,37 @@ async function persistRoomState(room) {
     if (error) console.warn("[interview-relay] state persist failed", room.id, error.message);
   } catch (err) {
     console.warn("[interview-relay] state persist failed", room.id, err);
+  }
+}
+
+/**
+ * Logs one real submit attempt to the permanent interview_submissions table
+ * so the admin panel can review completion/results after a session has
+ * ended, not just live. Fire-and-forget from the caller, same as every
+ * other persistence helper here — never blocks the live relay path.
+ * result.time from Judge0 is in seconds; time_ms needs the same *1000
+ * conversion ProblemPage.jsx's insertSubmission already applies.
+ */
+async function persistInterviewSubmission(room, problemId, result) {
+  if (!supabase) return;
+  try {
+    const { error } = await supabase.from("interview_submissions").insert({
+      room_id: room.id,
+      room_title: room.title,
+      candidate_name: room.state.candidateName,
+      problem_id: problemId,
+      kind: "submit",
+      language: room.state.language,
+      code: room.state.codeByProblem[problemId] || "",
+      verdict: result.verdict,
+      passed: result.passed ?? null,
+      total: result.total ?? null,
+      time_ms: (result.time ?? 0) * 1000,
+      memory_kb: result.memory ?? null,
+    });
+    if (error) console.warn("[interview-relay] submission persist failed", room.id, error.message);
+  } catch (err) {
+    console.warn("[interview-relay] submission persist failed", room.id, err);
   }
 }
 
@@ -217,26 +281,40 @@ async function tryRehydrateOne(roomId) {
   const row = await fetchRoomRow(roomId);
   if (!row) return null;
   const room = rowToRoom(row);
-  if (Date.now() - room.createdAt > ROOM_TTL_MS) {
+  if (Date.now() - room.createdAt > roomExpiryMs(room)) {
     deleteRoomRow(roomId); // stale — the sweep hasn't reached it yet, don't resurrect it
     return null;
   }
   rooms.set(room.id, room);
+  scheduleAutoEnd(room);
   return room;
 }
 
-/** Bulk-loads still-live rooms from Supabase at boot. Non-blocking — never delays server.listen(). */
+/**
+ * Bulk-loads still-live rooms from Supabase at boot. Non-blocking — never
+ * delays server.listen(). Each room's own expiresAfterHours decides
+ * whether it's actually still live (no single global cutoff, since rooms
+ * can have different expiry windows) — this only bounds the initial fetch
+ * to a generous 30 days as a sanity limit, not the real expiry check.
+ */
 async function rehydrateRoomsOnBoot() {
   if (!supabase) return;
-  const cutoffIso = new Date(Date.now() - ROOM_TTL_MS).toISOString();
+  const outerBoundIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   try {
-    const { data, error } = await supabase.from("interview_rooms").select("*").gt("created_at", cutoffIso);
+    const { data, error } = await supabase.from("interview_rooms").select("*").gt("created_at", outerBoundIso);
     if (error) {
       console.warn("[interview-relay] boot rehydrate failed", error.message);
       return;
     }
     for (const row of data || []) {
-      if (!rooms.has(row.id)) rooms.set(row.id, rowToRoom(row));
+      if (rooms.has(row.id)) continue;
+      const room = rowToRoom(row);
+      if (Date.now() - room.createdAt > roomExpiryMs(room)) {
+        deleteRoomRow(row.id); // expired per its own window — don't resurrect it
+        continue;
+      }
+      rooms.set(row.id, room);
+      scheduleAutoEnd(room);
     }
     console.log(`[interview-relay] rehydrated ${data?.length ?? 0} room(s) from Supabase`);
   } catch (err) {
@@ -263,6 +341,58 @@ function clearPendingPersist(roomId) {
   }
 }
 
+/**
+ * (Re)schedules a room's auto-end for when its time limit runs out, based on
+ * room.state.testStartedAt. No-op if the room has no limit or hasn't
+ * started yet. If the deadline has already passed — e.g. a room rehydrated
+ * after the process was down past its limit — ends it immediately instead
+ * of scheduling, so auto-end stays correct across a restart rather than
+ * just resetting the clock.
+ */
+function scheduleAutoEnd(room) {
+  clearAutoEndTimer(room.id);
+  if (!room.timeLimitMinutes || !room.state.testStartedAt) return;
+  const deadline = room.state.testStartedAt + room.timeLimitMinutes * 60 * 1000;
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    endInterviewRoom(room.id, "timeout");
+    return;
+  }
+  autoEndTimers.set(room.id, setTimeout(() => endInterviewRoom(room.id, "timeout"), remaining));
+}
+
+function clearAutoEndTimer(roomId) {
+  const t = autoEndTimers.get(roomId);
+  if (t) {
+    clearTimeout(t);
+    autoEndTimers.delete(roomId);
+  }
+}
+
+/**
+ * The single place an interview room ever gets ended, however it's
+ * triggered (interviewer clicking End, candidate clicking End test, or the
+ * time-limit timer firing) — notifies both sides, tears down sockets, and
+ * removes all durable/pending state for the room. Has no `await` before
+ * `rooms.delete()`, so a manual end and an auto-end racing each other can't
+ * double-fire: whichever call's synchronous prefix runs first wins, the
+ * second sees `room` as undefined and just re-runs the already-idempotent
+ * cleanup tail.
+ */
+async function endInterviewRoom(roomId, reason) {
+  const room = rooms.get(roomId);
+  if (room) {
+    toCandidate(room, { type: "ended", reason });
+    toInterviewers(room, { type: "ended", reason });
+    closeAll(room.candidateSocket);
+    room.interviewerSockets.forEach(closeAll);
+  }
+  rooms.delete(roomId);
+  clearPendingPersist(roomId);
+  clearAutoEndTimer(roomId);
+  await deleteRoomRow(roomId);
+}
+
 function roomSummary(room) {
   return {
     roomId: room.id,
@@ -273,6 +403,9 @@ function roomSummary(room) {
     flutterPrompt: room.flutterPrompt,
     webuiRound: room.webuiRound,
     webuiPrompt: room.webuiPrompt,
+    timeLimitMinutes: room.timeLimitMinutes,
+    expiresAfterHours: room.expiresAfterHours,
+    testStartedAt: room.state.testStartedAt ?? null,
     createdAt: room.createdAt,
     candidateConnected: room.state.candidateConnected,
     candidateName: room.state.candidateName,
@@ -281,14 +414,22 @@ function roomSummary(room) {
 }
 
 app.post("/api/interviews", (req, res) => {
-  const { title, problemIds = [], flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt } = req.body || {};
+  const { title, problemIds = [], flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours } = req.body || {};
   if (!Array.isArray(problemIds)) {
     return res.status(400).json({ error: "problemIds must be an array" });
   }
   if (problemIds.length === 0 && !flutterRound && !webuiRound) {
     return res.status(400).json({ error: "pick at least one problem, or include a Flutter or Web UI round" });
   }
-  const room = makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt });
+  // Blank/0/omitted means "no limit" (valid); anything else must be a positive number.
+  if (timeLimitMinutes != null && timeLimitMinutes !== "" && !(Number.isFinite(Number(timeLimitMinutes)) && Number(timeLimitMinutes) > 0)) {
+    return res.status(400).json({ error: "timeLimitMinutes must be a positive number" });
+  }
+  // Blank/omitted means "use the default"; anything else must be a positive number.
+  if (expiresAfterHours != null && expiresAfterHours !== "" && !(Number.isFinite(Number(expiresAfterHours)) && Number(expiresAfterHours) > 0)) {
+    return res.status(400).json({ error: "expiresAfterHours must be a positive number" });
+  }
+  const room = makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours });
   res.json(roomSummary(room));
 });
 
@@ -307,14 +448,7 @@ app.get("/api/interviews/:roomId", async (req, res) => {
 });
 
 app.delete("/api/interviews/:roomId", async (req, res) => {
-  const room = rooms.get(req.params.roomId);
-  if (room) {
-    closeAll(room.candidateSocket);
-    room.interviewerSockets.forEach(closeAll);
-  }
-  rooms.delete(req.params.roomId);
-  clearPendingPersist(req.params.roomId);
-  await deleteRoomRow(req.params.roomId);
+  await endInterviewRoom(req.params.roomId, "manual");
   res.json({ ok: true });
 });
 
@@ -398,6 +532,16 @@ function applyCandidateMessage(room, msg) {
   switch (msg?.type) {
     case "name":
       room.state.candidateName = msg.name;
+      // First time this room's candidate has ever identified themselves:
+      // if a time limit is set, this is when the countdown starts (not
+      // room-creation time — the candidate usually joins some time later).
+      if (!room.state.testStartedAt && room.timeLimitMinutes) {
+        room.state.testStartedAt = Date.now();
+        scheduleAutoEnd(room);
+        const timing = { type: "timing", testStartedAt: room.state.testStartedAt, timeLimitMinutes: room.timeLimitMinutes };
+        toCandidate(room, timing);
+        toInterviewers(room, timing);
+      }
       break;
     case "code":
       room.state.codeByProblem[msg.problemId] = msg.code;
@@ -408,6 +552,9 @@ function applyCandidateMessage(room, msg) {
       break;
     case "result":
       room.state.lastResultByProblem[msg.problemId] = msg.result;
+      if (msg.result?.kind === "submit") {
+        persistInterviewSubmission(room, msg.problemId, msg.result); // fire-and-forget, never blocks relay
+      }
       break;
     case "webuiCode":
       room.state.webui = { html: msg.html ?? "", css: msg.css ?? "", js: msg.js ?? "" };
@@ -429,22 +576,39 @@ function toCandidate(room, msg) {
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
 }
 
-// Sweep stale rooms every 30 minutes so long-idle interviews don't leak memory.
+// Sweep stale rooms every 30 minutes so long-idle interviews don't leak
+// memory. Each room has its own expiresAfterHours now (not one global
+// cutoff), so this checks per-room in memory, then separately reconciles
+// Supabase the same way rehydrateRoomsOnBoot does — fetching rows and
+// filtering expiry client-side, since a single-column `.lt()` query can't
+// express "compare to a per-row expiry window."
 setInterval(() => {
   const now = Date.now();
-  const cutoff = now - ROOM_TTL_MS;
   for (const [id, room] of rooms) {
-    if (room.createdAt < cutoff) {
+    if (now - room.createdAt > roomExpiryMs(room)) {
       rooms.delete(id);
       clearPendingPersist(id);
+      clearAutoEndTimer(id);
     }
   }
   if (supabase) {
-    supabase.from("interview_rooms").delete().lt("created_at", new Date(cutoff).toISOString())
-      .then(({ error }) => {
-        if (error) console.warn("[interview-relay] TTL sweep failed", error.message);
-      })
-      .catch((err) => console.warn("[interview-relay] TTL sweep failed", err));
+    (async () => {
+      try {
+        const { data, error } = await supabase.from("interview_rooms").select("id, created_at, expires_after_hours");
+        if (error) {
+          console.warn("[interview-relay] TTL sweep failed", error.message);
+          return;
+        }
+        const expiredIds = (data || [])
+          .filter((row) => now - new Date(row.created_at).getTime() > (row.expires_after_hours ?? DEFAULT_ROOM_TTL_HOURS) * 60 * 60 * 1000)
+          .map((row) => row.id);
+        if (expiredIds.length === 0) return;
+        const { error: deleteError } = await supabase.from("interview_rooms").delete().in("id", expiredIds);
+        if (deleteError) console.warn("[interview-relay] TTL sweep failed", deleteError.message);
+      } catch (err) {
+        console.warn("[interview-relay] TTL sweep failed", err);
+      }
+    })();
   }
 }, 30 * 60 * 1000);
 

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Loader2, Wifi, WifiOff, User, Eye, Smartphone, Globe, ExternalLink, MonitorPlay } from "lucide-react";
+import { Loader2, Wifi, WifiOff, User, Eye, Smartphone, Globe, ExternalLink, MonitorPlay, X } from "lucide-react";
 import { fetchAllProblems } from "../../lib/db.js";
-import { getInterview, dartpadEmbedUrl, buildWebUIDoc } from "../../interview/interviewApi.js";
+import { getInterview, endInterview, dartpadEmbedUrl, buildWebUIDoc } from "../../interview/interviewApi.js";
 import { useInterviewSocket } from "../../interview/useInterviewSocket.js";
+import { useCountdown } from "../../interview/countdown.js";
 import {
   LANG, ProblemDescription, CodeArea, ResultsView, Tab,
 } from "../ProblemPage.jsx";
@@ -45,8 +46,25 @@ function InterviewerWatch({ room, problemsById, roomId }) {
   const [followCandidate, setFollowCandidate] = useState(true);
   const [webuiCode, setWebuiCode] = useState(EMPTY_WEBUI);
   const [webuiEditor, setWebuiEditor] = useState("html");
+  const [ended, setEnded] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const [endReason, setEndReason] = useState(null);
+  const [testStartedAt, setTestStartedAt] = useState(room.testStartedAt ?? null);
 
-  const { connected } = useInterviewSocket(roomId, "interviewer", (msg) => {
+  async function handleEndInterview() {
+    if (!window.confirm("End this interview? This disconnects the candidate and can't be undone.")) return;
+    setEnding(true);
+    try {
+      await endInterview(roomId);
+      setEndReason("manual");
+      setEnded(true);
+      stop();
+    } catch {
+      setEnding(false);
+    }
+  }
+
+  const { connected, stop } = useInterviewSocket(roomId, "interviewer", (msg) => {
     switch (msg.type) {
       case "snapshot": {
         const s = msg.state;
@@ -57,6 +75,7 @@ function InterviewerWatch({ room, problemsById, roomId }) {
         setCandidateConnected(s.candidateConnected);
         if (s.webui) setWebuiCode(s.webui);
         if (s.activeProblemId) setActiveId(s.activeProblemId);
+        if (s.testStartedAt) setTestStartedAt(s.testStartedAt);
         break;
       }
       case "name":
@@ -79,16 +98,39 @@ function InterviewerWatch({ room, problemsById, roomId }) {
       case "presence":
         if (msg.role === "candidate") setCandidateConnected(msg.connected);
         break;
+      case "timing":
+        setTestStartedAt(msg.testStartedAt);
+        break;
+      case "ended":
+        setEndReason(msg.reason || "manual");
+        setEnded(true);
+        stop();
+        break;
       default:
         break;
     }
   });
+
+  const timeRemaining = useCountdown(testStartedAt, room.timeLimitMinutes);
 
   const activeProblem = (isFlutterTab || isWebUITab) ? null : problemsById[activeId];
   const code = codeByProblem[activeId] ?? "";
   const results = resultsByProblem[activeId] || null;
 
   if (!activeProblem && !isFlutterTab && !isWebUITab) return <CenteredMessage title="No problems assigned to this interview" />;
+  if (ended) {
+    const timedOut = endReason === "timeout";
+    return (
+      <CenteredMessage
+        title={timedOut ? "Time's up" : "Interview ended"}
+        detail={
+          timedOut
+            ? "The candidate's time limit was reached and the interview ended automatically. Find this session under Interview history in the admin panel."
+            : "The candidate has been disconnected. Find this session under Interview history in the admin panel."
+        }
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen" style={{ background: "var(--bg-app)" }}>
@@ -111,6 +153,22 @@ function InterviewerWatch({ room, problemsById, roomId }) {
             connected={connected}
             label={connected ? "Connected" : "Reconnecting…"}
           />
+          {timeRemaining && (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md font-mono font-semibold"
+              style={{ background: "#f4f4f5", color: "var(--text-primary)" }}
+            >
+              {timeRemaining}
+            </span>
+          )}
+          <button
+            onClick={handleEndInterview}
+            disabled={ending}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors disabled:opacity-50"
+            style={{ background: "#fee2e2", color: "#b91c1c" }}
+          >
+            <X size={12} /> {ending ? "Ending…" : "End interview"}
+          </button>
         </div>
       </header>
 

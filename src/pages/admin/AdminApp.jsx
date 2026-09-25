@@ -1,13 +1,14 @@
 import React from "react";
 import {
   LayoutDashboard, FileText, Plus, Upload, ArrowLeft, Zap, Settings,
-  Users, Database, Video, Trophy,
+  Users, Database, Video, Trophy, History,
 } from "lucide-react";
 import Dashboard from "./Dashboard.jsx";
 import ProblemsTable from "./ProblemsTable.jsx";
 import AddProblem from "./AddProblem.jsx";
 import BulkUpload from "./BulkUpload.jsx";
 import Interviews from "./Interviews.jsx";
+import InterviewHistory from "./InterviewHistory.jsx";
 import Contests from "./Contests.jsx";
 import UsersPage from "./Users.jsx";
 
@@ -23,6 +24,7 @@ export default function AdminApp({ subview = "dashboard", onNavigate, onExit }) 
           {subview === "add" && <AddProblem onDone={() => onNavigate("problems")} />}
           {subview === "bulk" && <BulkUpload onDone={() => onNavigate("problems")} />}
           {subview === "interviews" && <Interviews />}
+          {subview === "interview-history" && <InterviewHistory />}
           {subview === "contests" && <Contests />}
           {subview === "users" && <UsersPage />}
           {subview === "settings" && <ComingSoon title="Settings" description="Settings panel placeholder." />}
@@ -96,6 +98,13 @@ function Sidebar({ current, onNavigate, onExit }) {
           onClick={() => onNavigate("interviews")}
         >
           Live interviews
+        </SidebarLink>
+        <SidebarLink
+          icon={<History size={16} />}
+          active={current === "interview-history"}
+          onClick={() => onNavigate("interview-history")}
+        >
+          Interview history
         </SidebarLink>
 
         <SidebarSection label="Contests" />
@@ -172,6 +181,7 @@ function TopBar({ subview }) {
     add: { title: "Add a problem", crumb: "Content / New problem" },
     bulk: { title: "Bulk upload", crumb: "Content / Bulk upload" },
     interviews: { title: "Live interviews", crumb: "Interviews / Live interviews" },
+    "interview-history": { title: "Interview history", crumb: "Interviews / History" },
     contests: { title: "Weekly contests", crumb: "Contests / Weekly contests" },
     users: { title: "Users", crumb: "Workspace / Users" },
     settings: { title: "Settings", crumb: "Workspace / Settings" },

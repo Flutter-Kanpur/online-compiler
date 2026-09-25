@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Play, Send, Loader2, Wifi, WifiOff, Zap, Smartphone, Globe } from "lucide-react";
+import { Play, Send, Loader2, Wifi, WifiOff, Zap, Smartphone, Globe, CheckCircle2, X } from "lucide-react";
 import { fetchAllProblems } from "../../lib/db.js";
-import { getInterview, dartpadEmbedUrl, buildWebUIDoc } from "../../interview/interviewApi.js";
+import { getInterview, endInterview, dartpadEmbedUrl, buildWebUIDoc } from "../../interview/interviewApi.js";
 import { useInterviewSocket } from "../../interview/useInterviewSocket.js";
+import { useCountdown } from "../../interview/countdown.js";
 import {
   LANG, LANG_BY_CATEGORY, starterFor, judge0Run, classifyVerdict,
   ProblemDescription, CodeArea, ResultsView, Tab,
@@ -101,12 +102,42 @@ function CandidateWorkspace({ room, problemsById, candidateName, roomId }) {
   const [interviewerCount, setInterviewerCount] = useState(0);
   const [webuiCode, setWebuiCode] = useState(DEFAULT_WEBUI);
   const [webuiEditor, setWebuiEditor] = useState("html");
+  const [endReason, setEndReason] = useState(null);
+  const [ending, setEnding] = useState(false);
+  const [testStartedAt, setTestStartedAt] = useState(room.testStartedAt ?? null);
+  const interviewEnded = endReason !== null;
 
-  const { connected, send } = useInterviewSocket(roomId, "candidate", (msg) => {
+  const { connected, send, stop } = useInterviewSocket(roomId, "candidate", (msg) => {
     if (msg.type === "presence" && msg.role === "interviewer") {
       setInterviewerCount(msg.count || 0);
+    } else if (msg.type === "ended") {
+      setEndReason(msg.reason || "manual");
+    } else if (msg.type === "timing") {
+      setTestStartedAt(msg.testStartedAt);
+    } else if (msg.type === "snapshot" && msg.state?.testStartedAt) {
+      setTestStartedAt(msg.state.testStartedAt);
     }
   });
+
+  // Stop retrying to reconnect once the interview has ended (however it
+  // ended) — the room is gone, so there's nothing left to reconnect to.
+  useEffect(() => {
+    if (interviewEnded) stop();
+  }, [interviewEnded, stop]);
+
+  async function handleEndTest() {
+    if (!window.confirm("End your interview now? This can't be undone.")) return;
+    setEnding(true);
+    try {
+      await endInterview(roomId);
+      setEndReason("manual");
+      stop();
+    } catch {
+      setEnding(false);
+    }
+  }
+
+  const timeRemaining = useCountdown(testStartedAt, room.timeLimitMinutes);
 
   const sentNameRef = useRef(false);
   useEffect(() => {
@@ -234,6 +265,7 @@ function CandidateWorkspace({ room, problemsById, candidateName, roomId }) {
   }
 
   if (!activeProblem && !isFlutterTab && !isWebUITab) return <CenteredMessage title="No problems assigned to this interview" />;
+  if (interviewEnded) return <ThankYouScreen candidateName={candidateName} reason={endReason} />;
 
   return (
     <div className="min-h-screen" style={{ background: "var(--bg-app)" }}>
@@ -246,7 +278,23 @@ function CandidateWorkspace({ room, problemsById, candidateName, roomId }) {
         </div>
         <div className="flex items-center gap-3 text-xs" style={{ color: "var(--text-muted)" }}>
           <span>{candidateName}</span>
+          {timeRemaining && (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md font-mono font-semibold"
+              style={{ background: "#f4f4f5", color: "var(--text-primary)" }}
+            >
+              {timeRemaining}
+            </span>
+          )}
           <ConnectionBadge connected={connected} label={connected ? (interviewerCount > 0 ? `${interviewerCount} interviewer watching` : "Live") : "Reconnecting…"} />
+          <button
+            onClick={handleEndTest}
+            disabled={ending}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors disabled:opacity-50"
+            style={{ background: "#fee2e2", color: "#b91c1c" }}
+          >
+            <X size={12} /> {ending ? "Ending…" : "End test"}
+          </button>
         </div>
       </header>
 
@@ -459,6 +507,30 @@ function ConnectionBadge({ connected, label }) {
     >
       {connected ? <Wifi size={11} /> : <WifiOff size={11} />} {label}
     </span>
+  );
+}
+
+function ThankYouScreen({ candidateName, reason }) {
+  const timedOut = reason === "timeout";
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "var(--bg-app)" }}>
+      <div className="card p-8 w-full max-w-sm text-center">
+        <div
+          className="w-14 h-14 rounded-full mx-auto mb-4 flex items-center justify-center"
+          style={{ background: "#d1fae5" }}
+        >
+          <CheckCircle2 size={28} color="#059669" strokeWidth={2} />
+        </div>
+        <div className="text-lg font-bold mb-1.5" style={{ color: "var(--text-primary)" }}>
+          {timedOut ? "Time's up!" : `Thank you${candidateName ? `, ${candidateName}` : ""}!`}
+        </div>
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+          {timedOut
+            ? "Your time for this interview has ended. Thank you for taking part — you can safely close this tab."
+            : "Thank you for taking the interview. This session has ended — you can safely close this tab."}
+        </p>
+      </div>
+    </div>
   );
 }
 
