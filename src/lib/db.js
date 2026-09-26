@@ -160,7 +160,7 @@ export async function insertSubmission({
 export async function fetchInterviewRoomsHistory({ limit = 50 } = {}) {
   const { data, error } = await supabase
     .from("interview_rooms")
-    .select("id, title, problem_ids, created_at, candidate_name:state->>candidateName")
+    .select("id, title, problem_ids, created_at, candidate_name:state->>candidateName, candidate_email:state->>candidateEmail")
     .eq("is_template", false)
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -177,6 +177,24 @@ export async function fetchInterviewSubmissions(roomId) {
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data || [];
+}
+
+/** Grouped verdict summary across every interview submission, for computing
+ * each room's Pass/Fail/Not-started status client-side. One unfiltered
+ * select (this admin-only table is small) — matches this file's existing
+ * pattern of simple un-aggregated .select() calls with no RPC/view usage. */
+export async function fetchInterviewRoomVerdictSummary() {
+  const { data, error } = await supabase
+    .from("interview_submissions")
+    .select("room_id, problem_id, verdict");
+  if (error) throw error;
+  const byRoom = {};
+  for (const row of data || []) {
+    const entry = (byRoom[row.room_id] ||= { attempted: new Set(), accepted: new Set() });
+    entry.attempted.add(row.problem_id);
+    if (row.verdict === "AC") entry.accepted.add(row.problem_id);
+  }
+  return byRoom;
 }
 
 export async function markSolved(userId, problemId) {

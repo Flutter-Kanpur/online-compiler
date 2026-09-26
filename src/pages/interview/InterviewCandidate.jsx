@@ -22,6 +22,7 @@ export default function InterviewCandidate({ roomId }) {
   const [roomError, setRoomError] = useState(null);
   const [problemsById, setProblemsById] = useState(null);
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [joined, setJoined] = useState(false);
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState(null);
@@ -29,8 +30,9 @@ export default function InterviewCandidate({ roomId }) {
   // Read once, like App.jsx's own one-time route parse — this app has no
   // client-side router, so a freshly-forked room (see handleTemplateJoin
   // below) has to arrive here via a real navigation, and this is how the
-  // candidate's name survives that trip without asking them to type it twice.
+  // candidate's name/email survive that trip without asking them to type it twice.
   const nameFromFork = useMemo(() => new URLSearchParams(window.location.search).get("name"), []);
+  const emailFromFork = useMemo(() => new URLSearchParams(window.location.search).get("email"), []);
 
   useEffect(() => {
     getInterview(roomId)
@@ -38,6 +40,7 @@ export default function InterviewCandidate({ roomId }) {
         setRoom(r);
         if (nameFromFork) {
           setName(nameFromFork);
+          setEmail(emailFromFork || "");
           setJoined(true);
         }
       })
@@ -45,14 +48,14 @@ export default function InterviewCandidate({ roomId }) {
     fetchAllProblems()
       .then((list) => setProblemsById(Object.fromEntries(list.map((p) => [p.id, p]))))
       .catch(() => setProblemsById({}));
-  }, [roomId, nameFromFork]);
+  }, [roomId, nameFromFork, emailFromFork]);
 
-  async function handleTemplateJoin(enteredName) {
+  async function handleTemplateJoin(enteredName, enteredEmail) {
     setForking(true);
     setForkError(null);
     try {
       const forked = await forkInterview(roomId, enteredName);
-      window.location.replace(`/interview/${forked.roomId}/candidate?name=${encodeURIComponent(enteredName)}`);
+      window.location.replace(`/interview/${forked.roomId}/candidate?name=${encodeURIComponent(enteredName)}&email=${encodeURIComponent(enteredEmail)}`);
     } catch (e) {
       setForkError(e.message);
       setForking(false);
@@ -68,17 +71,20 @@ export default function InterviewCandidate({ roomId }) {
         title={room.title}
         name={name}
         setName={setName}
-        onJoin={() => (room.isTemplate ? handleTemplateJoin(name) : setJoined(true))}
+        email={email}
+        setEmail={setEmail}
+        onJoin={() => (room.isTemplate ? handleTemplateJoin(name, email) : setJoined(true))}
         joining={forking}
         error={forkError}
       />
     );
   }
 
-  return <CandidateWorkspace room={room} problemsById={problemsById} candidateName={name} roomId={roomId} />;
+  return <CandidateWorkspace room={room} problemsById={problemsById} candidateName={name} candidateEmail={email} roomId={roomId} />;
 }
 
-function NameGate({ title, name, setName, onJoin, joining, error }) {
+function NameGate({ title, name, setName, email, setEmail, onJoin, joining, error }) {
+  const canJoin = name.trim() && email.trim().includes("@") && !joining;
   return (
     <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "var(--bg-app)" }}>
       <div className="card p-8 w-full max-w-sm text-center">
@@ -90,20 +96,28 @@ function NameGate({ title, name, setName, onJoin, joining, error }) {
         </div>
         <div className="text-lg font-bold mb-1" style={{ color: "var(--text-primary)" }}>{title}</div>
         <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
-          Enter your name so the interviewer knows it's you, then start solving.
+          Enter your name and email so the interviewer knows it's you, then start solving.
         </p>
         <input
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && name.trim() && !joining) onJoin(); }}
+          onKeyDown={(e) => { if (e.key === "Enter" && canJoin) onJoin(); }}
           placeholder="Your name"
+          className="input-field mb-3 text-center"
+        />
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && canJoin) onJoin(); }}
+          placeholder="Your email"
           className="input-field mb-4 text-center"
         />
         {error && <p className="text-xs mb-3" style={{ color: "#b91c1c" }}>{error}</p>}
         <button
           className="btn-primary w-full justify-center"
-          disabled={!name.trim() || joining}
+          disabled={!canJoin}
           onClick={onJoin}
         >
           {joining ? "Starting your session…" : "Start interview"}
@@ -113,7 +127,7 @@ function NameGate({ title, name, setName, onJoin, joining, error }) {
   );
 }
 
-function CandidateWorkspace({ room, problemsById, candidateName, roomId }) {
+function CandidateWorkspace({ room, problemsById, candidateName, candidateEmail, roomId }) {
   const problems = room.problemIds.map((id) => problemsById[id]).filter(Boolean);
   const [activeId, setActiveId] = useState(
     problems[0]?.id ?? (room.flutterRound ? FLUTTER_TAB : room.webuiRound ? WEBUI_TAB : undefined)
@@ -171,10 +185,10 @@ function CandidateWorkspace({ room, problemsById, candidateName, roomId }) {
   const sentNameRef = useRef(false);
   useEffect(() => {
     if (connected && !sentNameRef.current) {
-      send({ type: "name", name: candidateName });
+      send({ type: "name", name: candidateName, email: candidateEmail });
       sentNameRef.current = true;
     }
-  }, [connected, candidateName, send]);
+  }, [connected, candidateName, candidateEmail, send]);
 
   const code = (isFlutterTab || isWebUITab) ? "" : (codeByProblem[activeId] ?? starterFor(activeProblem, language));
 
@@ -440,7 +454,7 @@ function CandidateWorkspace({ room, problemsById, candidateName, roomId }) {
                 </button>
               </div>
             </div>
-            <CodeArea code={code} setCode={setCode} />
+            <CodeArea code={code} setCode={setCode} blockClipboard />
           </div>
         </div>
         )}
@@ -477,7 +491,7 @@ function WebUIPanel({ room, webuiCode, activeEditor, setActiveEditor, onChange }
               </button>
             ))}
           </div>
-          <CodeArea code={webuiCode[activeEditor]} setCode={(v) => onChange(activeEditor, v)} />
+          <CodeArea code={webuiCode[activeEditor]} setCode={(v) => onChange(activeEditor, v)} blockClipboard />
         </div>
 
         <div className="card overflow-hidden flex flex-col" style={{ minHeight: "60vh" }}>

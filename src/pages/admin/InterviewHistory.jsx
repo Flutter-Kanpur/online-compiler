@@ -1,20 +1,25 @@
 import React, { useState, useEffect } from "react";
-import { User, FileText, Loader2, ChevronRight, ArrowLeft, Check, X, Clock } from "lucide-react";
-import { fetchInterviewRoomsHistory, fetchInterviewSubmissions, fetchAllProblems } from "../../lib/db.js";
+import { User, Mail, FileText, Loader2, ChevronRight, ArrowLeft, Check, X, Clock, Sparkles, Copy } from "lucide-react";
+import { fetchInterviewRoomsHistory, fetchInterviewSubmissions, fetchInterviewRoomVerdictSummary, fetchAllProblems } from "../../lib/db.js";
+import { checkSubmissionAI, checkSubmissionSimilarity } from "../../interview/interviewApi.js";
 import { formatRelativeTime } from "../../utils/time.js";
 
 export default function InterviewHistory() {
   const [rooms, setRooms] = useState(null);
   const [problems, setProblems] = useState([]);
+  const [verdictSummary, setVerdictSummary] = useState(null);
   const [selectedRoomId, setSelectedRoomId] = useState(null);
   const [submissions, setSubmissions] = useState(null);
   const [error, setError] = useState(null);
+  const [aiState, setAiState] = useState({});
+  const [similarityState, setSimilarityState] = useState({});
 
   useEffect(() => {
     fetchInterviewRoomsHistory()
       .then(setRooms)
       .catch((e) => setError(e.message || String(e)));
     fetchAllProblems().then(setProblems).catch(() => {});
+    fetchInterviewRoomVerdictSummary().then(setVerdictSummary).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -27,6 +32,29 @@ export default function InterviewHistory() {
 
   const problemTitle = (id) => problems.find((p) => p.id === id)?.title || id;
   const selectedRoom = rooms?.find((r) => r.id === selectedRoomId) || null;
+
+  async function runAiCheck(submissionId) {
+    setAiState((prev) => ({ ...prev, [submissionId]: { loading: true } }));
+    try {
+      const result = await checkSubmissionAI(submissionId);
+      setAiState((prev) => ({ ...prev, [submissionId]: { loading: false, result } }));
+      setSubmissions((prev) =>
+        prev?.map((s) => (s.id === submissionId ? { ...s, ai_score: result.score, ai_reasoning: result.reasoning, ai_checked_at: result.aiCheckedAt } : s))
+      );
+    } catch (e) {
+      setAiState((prev) => ({ ...prev, [submissionId]: { loading: false, error: e.message } }));
+    }
+  }
+
+  async function runSimilarityCheck(submissionId) {
+    setSimilarityState((prev) => ({ ...prev, [submissionId]: { loading: true } }));
+    try {
+      const result = await checkSubmissionSimilarity(submissionId);
+      setSimilarityState((prev) => ({ ...prev, [submissionId]: { loading: false, result } }));
+    } catch (e) {
+      setSimilarityState((prev) => ({ ...prev, [submissionId]: { loading: false, error: e.message } }));
+    }
+  }
 
   if (selectedRoomId) {
     return (
@@ -47,6 +75,9 @@ export default function InterviewHistory() {
             {selectedRoom?.candidate_name && (
               <span className="inline-flex items-center gap-1"><User size={12} /> {selectedRoom.candidate_name}</span>
             )}
+            {selectedRoom?.candidate_email && (
+              <span className="inline-flex items-center gap-1"><Mail size={12} /> {selectedRoom.candidate_email}</span>
+            )}
             {selectedRoom?.created_at && <span>{formatRelativeTime(selectedRoom.created_at)}</span>}
           </div>
         </div>
@@ -63,28 +94,42 @@ export default function InterviewHistory() {
           <div className="card overflow-hidden">
             <div className="divide-y" style={{ borderColor: "var(--border)" }}>
               {submissions.map((s) => (
-                <div key={s.id} className="px-5 py-4 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <VerdictBadge verdict={s.verdict} />
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium capitalize truncate" style={{ color: "var(--text-primary)" }}>
-                        {problemTitle(s.problem_id)}
-                      </div>
-                      <div className="text-xs flex items-center gap-2 mt-0.5" style={{ color: "var(--text-muted)" }}>
-                        <span className="font-mono">{s.language}</span>
-                        <span>·</span>
-                        <span>{s.passed}/{s.total} passed</span>
-                        {s.time_ms != null && (
-                          <>
-                            <span>·</span>
-                            <span>{Math.round(s.time_ms)}ms · {s.memory_kb ? (s.memory_kb / 1024).toFixed(1) : "0"}MB</span>
-                          </>
-                        )}
-                        <span>·</span>
-                        <span>{formatRelativeTime(s.created_at)}</span>
+                <div key={s.id} className="px-5 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <VerdictBadge verdict={s.verdict} />
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium capitalize truncate" style={{ color: "var(--text-primary)" }}>
+                          {problemTitle(s.problem_id)}
+                        </div>
+                        <div className="text-xs flex items-center gap-2 mt-0.5" style={{ color: "var(--text-muted)" }}>
+                          <span className="font-mono">{s.language}</span>
+                          <span>·</span>
+                          <span>{s.passed}/{s.total} passed</span>
+                          {s.time_ms != null && (
+                            <>
+                              <span>·</span>
+                              <span>{Math.round(s.time_ms)}ms · {s.memory_kb ? (s.memory_kb / 1024).toFixed(1) : "0"}MB</span>
+                            </>
+                          )}
+                          <span>·</span>
+                          <span>{formatRelativeTime(s.created_at)}</span>
+                        </div>
                       </div>
                     </div>
+                    <div className="flex-shrink-0 flex items-center gap-2">
+                      <AiCheckControl submission={s} state={aiState[s.id]} onCheck={() => runAiCheck(s.id)} />
+                      <SimilarityCheckControl state={similarityState[s.id]} onCheck={() => runSimilarityCheck(s.id)} />
+                    </div>
                   </div>
+                  {aiState[s.id]?.result?.reasoning && (
+                    <div className="mt-2 ml-11 text-xs" style={{ color: "var(--text-muted)" }}>
+                      "{aiState[s.id].result.reasoning}"
+                    </div>
+                  )}
+                  {similarityState[s.id]?.result && (
+                    <SimilarityResults matches={similarityState[s.id].result.matches} />
+                  )}
                 </div>
               ))}
             </div>
@@ -121,13 +166,21 @@ export default function InterviewHistory() {
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
-                    {r.title}
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
+                      {r.title}
+                    </div>
+                    <StatusBadge status={statusForRoom(r, verdictSummary)} />
                   </div>
-                  <div className="flex items-center gap-3 mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  <div className="flex items-center gap-3 mt-1 text-xs flex-wrap" style={{ color: "var(--text-muted)" }}>
                     <span className="inline-flex items-center gap-1">
                       <User size={12} /> {r.candidate_name || "Unnamed candidate"}
                     </span>
+                    {r.candidate_email && (
+                      <span className="inline-flex items-center gap-1">
+                        <Mail size={12} /> {r.candidate_email}
+                      </span>
+                    )}
                     <span className="inline-flex items-center gap-1">
                       <FileText size={12} /> {(r.problem_ids || []).length} problem{(r.problem_ids || []).length === 1 ? "" : "s"}
                     </span>
@@ -155,6 +208,117 @@ function VerdictBadge({ verdict }) {
       title={verdict}
     >
       {isAC ? <Check size={14} color="#059669" strokeWidth={3} /> : <X size={14} color="#b91c1c" strokeWidth={3} />}
+    </div>
+  );
+}
+
+/** Passed = every DSA problem assigned to this room has an accepted
+ * submission; Failed = attempted at least one, not all AC; Not started =
+ * zero submissions. Rooms with no DSA problems (Flutter/WebUI-only) always
+ * land in "not_started" — problem_ids.every() on an empty array is
+ * vacuously true, which would otherwise wrongly show "Passed". */
+function statusForRoom(room, verdictSummary) {
+  const entry = verdictSummary?.[room.id];
+  const problemIds = room.problem_ids || [];
+  if (!entry || entry.attempted.size === 0) return "not_started";
+  if (problemIds.length > 0 && problemIds.every((id) => entry.accepted.has(id))) return "passed";
+  return "failed";
+}
+
+function StatusBadge({ status }) {
+  const variants = {
+    passed: { label: "Passed", background: "#dcfce7", color: "#166534" },
+    failed: { label: "Failed", background: "#fee2e2", color: "#b91c1c" },
+    not_started: { label: "Not started", background: "#f4f4f5", color: "var(--text-muted)" },
+  };
+  const v = variants[status] || variants.not_started;
+  return (
+    <span
+      className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0"
+      style={{ background: v.background, color: v.color }}
+    >
+      {v.label}
+    </span>
+  );
+}
+
+function AiCheckControl({ submission, state, onCheck }) {
+  const hasCached = submission.ai_checked_at != null;
+  if (state?.loading) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+        <Loader2 size={12} className="animate-spin" /> Checking…
+      </span>
+    );
+  }
+  const score = state?.result?.score ?? submission.ai_score;
+  if (score != null) {
+    const suspicious = score >= 60;
+    return (
+      <div className="flex items-center gap-1.5">
+        <span
+          className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
+          style={{ background: suspicious ? "#fee2e2" : "#f4f4f5", color: suspicious ? "#b91c1c" : "var(--text-muted)" }}
+        >
+          <Sparkles size={10} /> AI likelihood: {score}%
+        </span>
+        <button onClick={onCheck} className="text-[11px] font-medium underline" style={{ color: "var(--text-muted)" }}>
+          Re-check
+        </button>
+      </div>
+    );
+  }
+  return (
+    <button onClick={onCheck} className="btn-ghost text-xs !px-2 !py-1">
+      <Sparkles size={12} /> Check for AI
+    </button>
+  );
+}
+
+function SimilarityCheckControl({ state, onCheck }) {
+  if (state?.loading) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+        <Loader2 size={12} className="animate-spin" /> Comparing…
+      </span>
+    );
+  }
+  return (
+    <button onClick={onCheck} className="btn-ghost text-xs !px-2 !py-1">
+      <Copy size={12} /> Check similarity
+    </button>
+  );
+}
+
+function SimilarityResults({ matches }) {
+  if (!matches || matches.length === 0) {
+    return (
+      <div className="mt-2 ml-11 text-xs" style={{ color: "var(--text-muted)" }}>
+        No other candidate has submitted this problem yet.
+      </div>
+    );
+  }
+  const top = matches.filter((m) => m.score >= 0.3).slice(0, 5);
+  if (top.length === 0) {
+    return (
+      <div className="mt-2 ml-11 text-xs" style={{ color: "var(--text-muted)" }}>
+        No meaningfully similar submissions found.
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2 ml-11 space-y-1">
+      {top.map((m) => (
+        <div key={m.id} className="text-xs flex items-center gap-2" style={{ color: "var(--text-muted)" }}>
+          <span
+            className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded"
+            style={{ background: m.score >= 0.7 ? "#fee2e2" : "#fef3c7", color: m.score >= 0.7 ? "#b91c1c" : "#92400e" }}
+          >
+            {Math.round(m.score * 100)}% similar
+          </span>
+          <span>{m.candidate_name || "Unnamed candidate"} — {m.room_title}</span>
+        </div>
+      ))}
     </div>
   );
 }

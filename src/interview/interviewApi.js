@@ -9,6 +9,8 @@
 // server has to be deployed on its own (e.g. Render) and this env var points
 // requests at its real URL instead of the deployed frontend's own origin
 // (which has no backend behind it and would otherwise always 404).
+import { supabase } from "../lib/supabaseClient.js";
+
 const SERVER_URL = (import.meta.env.VITE_INTERVIEW_SERVER_URL || "").replace(/\/+$/, "");
 const BASE = `${SERVER_URL}/api/interviews`;
 
@@ -56,6 +58,31 @@ export function getInterview(roomId) {
 
 export function endInterview(roomId) {
   return fetch(`${BASE}/${roomId}`, { method: "DELETE" }).then(asJson);
+}
+
+/** Attaches the current admin's Supabase session as a bearer token — the
+ * relay server verifies it's really an admin (is_admin()) before running
+ * either check below, since check-ai makes a paid API call per invocation. */
+async function adminAuthHeaders() {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+}
+
+/** Admin-only, on-demand: asks Claude whether a submission's code looks
+ * AI-generated. Result is cached server-side (ai_score/ai_reasoning columns)
+ * until explicitly re-checked. */
+export async function checkSubmissionAI(submissionId) {
+  const headers = await adminAuthHeaders();
+  return fetch(`${BASE}/submissions/${submissionId}/check-ai`, { method: "POST", headers }).then(asJson);
+}
+
+/** Admin-only, on-demand: compares a submission's code against every other
+ * candidate's submission for the same problem using a cheap text-similarity
+ * heuristic. Never cached — the comparison pool grows as more candidates
+ * submit, so a stored result would go stale. */
+export async function checkSubmissionSimilarity(submissionId) {
+  const headers = await adminAuthHeaders();
+  return fetch(`${BASE}/submissions/${submissionId}/check-similarity`, { method: "POST", headers }).then(asJson);
 }
 
 export function candidateLink(roomId) {

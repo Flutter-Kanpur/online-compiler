@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { nanoid } from "nanoid";
 import { createClient } from "@supabase/supabase-js";
+import Anthropic from "@anthropic-ai/sdk";
 
 // Manual .env loader — no `dotenv` dependency, and unlike Node's
 // `--env-file` flag this doesn't throw when the file is absent (so
@@ -75,6 +76,27 @@ if (!supabase) {
     "[interview-relay] SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not set — " +
     "interview room persistence disabled; rooms live in memory only and " +
     "will be lost on restart."
+  );
+}
+
+// Admin-only endpoints (check-ai/check-similarity, see requireAdmin below)
+// need to verify a caller's Supabase session without service-role rights —
+// SUPABASE_ANON_KEY is the same *public* value already baked into the
+// frontend as VITE_SUPABASE_ANON_KEY, just duplicated under a server-side
+// name (not a secret, safe to set the same way).
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || null;
+
+// AI-generated-code detection (POST .../check-ai) — same "configured or
+// null, warn once" pattern as the Supabase client above. A missing key
+// degrades that one endpoint to a 503, never breaks anything else.
+const anthropic = process.env.ANTHROPIC_API_KEY
+  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : null;
+
+if (!anthropic) {
+  console.warn(
+    "[interview-relay] ANTHROPIC_API_KEY not set — AI-generated-code " +
+    "detection disabled; POST .../check-ai will return 503."
   );
 }
 
@@ -139,6 +161,7 @@ function makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPromp
       lastResultByProblem: {},
       webui: { ...DEFAULT_WEBUI },
       candidateName: null,
+      candidateEmail: null,
       candidateConnected: false,
       testStartedAt: null,
     },
@@ -238,6 +261,7 @@ async function persistInterviewSubmission(room, problemId, result) {
       room_id: room.id,
       room_title: room.title,
       candidate_name: room.state.candidateName,
+      candidate_email: room.state.candidateEmail,
       problem_id: problemId,
       kind: "submit",
       language: room.state.language,
@@ -413,6 +437,7 @@ function roomSummary(room) {
     createdAt: room.createdAt,
     candidateConnected: room.state.candidateConnected,
     candidateName: room.state.candidateName,
+    candidateEmail: room.state.candidateEmail,
     interviewerCount: room.interviewerSockets.size,
   };
 }
@@ -479,6 +504,155 @@ app.get("/api/interviews/:roomId", async (req, res) => {
 app.delete("/api/interviews/:roomId", async (req, res) => {
   await endInterviewRoom(req.params.roomId, "manual");
   res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// AI-generated-code detection + cross-candidate similarity (admin-triggered,
+// on-demand from InterviewHistory.jsx's detail view). Same "gracefully
+// degrade if unconfigured" posture as Supabase above.
+//
+// Unlike every other route in this file, these two require the caller to be
+// a real admin — every other route here is deliberately unauthenticated (an
+// accepted tradeoff), but check-ai makes a paid Anthropic API call per
+// invocation, so a leaked/guessed submission UUID must not be enough to
+// spend money against it.
+// ---------------------------------------------------------------------------
+
+/**
+ * Verifies the caller's Supabase session really belongs to an admin, by
+ * running the same is_admin() security-definer function every RLS policy
+ * in this schema already trusts (supabase/migrations/0001_init.sql) — but
+ * via a per-request client built from the caller's own JWT (anon key, not
+ * service role), so the query runs as that user and respects auth.uid().
+ */
+async function requireAdmin(req, res, next) {
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!token) return res.status(401).json({ error: "missing Authorization bearer token" });
+  if (!process.env.SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return res.status(503).json({ error: "admin verification not configured" });
+  }
+  try {
+    const callerClient = createClient(process.env.SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    const { data, error } = await callerClient.rpc("is_admin");
+    if (error) {
+      console.warn("[interview-relay] admin check failed", error.message);
+      return res.status(401).json({ error: "could not verify session" });
+    }
+    if (!data) return res.status(403).json({ error: "admin access required" });
+    next();
+  } catch (err) {
+    console.warn("[interview-relay] admin check failed", err);
+    res.status(401).json({ error: "could not verify session" });
+  }
+}
+
+async function fetchSubmissionRow(submissionId) {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.from("interview_submissions").select("*").eq("id", submissionId).maybeSingle();
+    if (error) {
+      console.warn("[interview-relay] fetch submission failed", submissionId, error.message);
+      return null;
+    }
+    return data;
+  } catch (err) {
+    console.warn("[interview-relay] fetch submission failed", submissionId, err);
+    return null;
+  }
+}
+
+function normalizeCode(code) {
+  return (code || "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function bigrams(str) {
+  const set = new Set();
+  for (let i = 0; i < str.length - 1; i++) set.add(str.slice(i, i + 2));
+  return set;
+}
+
+/** Dice coefficient over character bigrams — cheap, dependency-free, catches
+ * straightforward copy-paste between candidates. Not resilient to
+ * variable-renaming-level obfuscation; accepted as "good enough" for a
+ * small interview batch, not a research-grade plagiarism system. */
+function diceCoefficient(codeA, codeB) {
+  const a = bigrams(normalizeCode(codeA));
+  const b = bigrams(normalizeCode(codeB));
+  if (a.size === 0 || b.size === 0) return 0;
+  let overlap = 0;
+  for (const bg of a) if (b.has(bg)) overlap++;
+  return (2 * overlap) / (a.size + b.size);
+}
+
+function buildAiCheckPrompt(code, language) {
+  return `You are helping an interviewer spot AI-generated code submissions in a live coding interview. Judge whether the following ${language} submission looks AI-generated (e.g. ChatGPT/Copilot-style: generic variable names, boilerplate comments, unusually polished/idiomatic for the apparent skill level) versus organically human-written (messier, iterative, personal style).
+
+Reply with ONLY a JSON object, no other text, no markdown fences: {"score": <0-100 integer, 0=clearly human, 100=clearly AI-generated>, "reasoning": "<one concise sentence>"}
+
+Code:
+${code}`;
+}
+
+function parseAiCheckResponse(message) {
+  const text = (message.content || []).map((b) => (b.type === "text" ? b.text : "")).join("").trim();
+  const cleaned = text.replace(/^```(json)?/i, "").replace(/```$/, "").trim();
+  const parsed = JSON.parse(cleaned);
+  const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score))));
+  const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning.slice(0, 500) : "";
+  if (!Number.isFinite(score)) throw new Error("invalid score in AI response");
+  return { score, reasoning };
+}
+
+app.post("/api/interviews/submissions/:submissionId/check-ai", requireAdmin, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: "persistence not configured" });
+  if (!anthropic) return res.status(503).json({ error: "ANTHROPIC_API_KEY not configured" });
+  const submission = await fetchSubmissionRow(req.params.submissionId);
+  if (!submission) return res.status(404).json({ error: "submission not found" });
+  try {
+    const message = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 300,
+      messages: [{ role: "user", content: buildAiCheckPrompt(submission.code, submission.language) }],
+    });
+    const { score, reasoning } = parseAiCheckResponse(message);
+    const ai_checked_at = new Date().toISOString();
+    const { error } = await supabase
+      .from("interview_submissions")
+      .update({ ai_score: score, ai_reasoning: reasoning, ai_checked_at })
+      .eq("id", submission.id);
+    if (error) console.warn("[interview-relay] ai check persist failed", submission.id, error.message);
+    res.json({ score, reasoning, aiCheckedAt: ai_checked_at });
+  } catch (err) {
+    console.warn("[interview-relay] check-ai failed", submission.id, err);
+    res.status(502).json({ error: "AI check failed" });
+  }
+});
+
+app.post("/api/interviews/submissions/:submissionId/check-similarity", requireAdmin, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: "persistence not configured" });
+  const submission = await fetchSubmissionRow(req.params.submissionId);
+  if (!submission) return res.status(404).json({ error: "submission not found" });
+  try {
+    const { data, error } = await supabase
+      .from("interview_submissions")
+      .select("id, room_id, room_title, candidate_name, code, created_at")
+      .eq("problem_id", submission.problem_id)
+      .neq("room_id", submission.room_id)
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (error) return res.status(502).json({ error: error.message });
+    const matches = (data || [])
+      .map(({ code, ...rest }) => ({ ...rest, score: diceCoefficient(submission.code, code) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10);
+    res.json({ matches }); // not persisted — pool grows over time, would go stale
+  } catch (err) {
+    console.warn("[interview-relay] check-similarity failed", submission.id, err);
+    res.status(502).json({ error: "similarity check failed" });
+  }
 });
 
 function closeAll(ws) {
@@ -563,6 +737,7 @@ function applyCandidateMessage(room, msg) {
   switch (msg?.type) {
     case "name":
       room.state.candidateName = msg.name;
+      room.state.candidateEmail = msg.email ?? null;
       // First time this room's candidate has ever identified themselves:
       // if a time limit is set, this is when the countdown starts (not
       // room-creation time — the candidate usually joins some time later).

@@ -476,7 +476,7 @@ export function ProblemDescription({ problem }) {
   );
 }
 
-export function CodeArea({ code, setCode, readOnly = false }) {
+export function CodeArea({ code, setCode, readOnly = false, blockClipboard = false }) {
   const taRef = useRef(null);
   const lineCount = code.split("\n").length;
 
@@ -490,6 +490,13 @@ export function CodeArea({ code, setCode, readOnly = false }) {
       setCode(newVal);
       requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = start + 4; });
     }
+  }
+
+  // Anti-cheat for live interviews only (see blockClipboard call sites) —
+  // blocks Ctrl+C/V/X and the right-click menu's Copy/Paste, not just the
+  // keyboard shortcuts.
+  function blockClipboardEvent(e) {
+    e.preventDefault();
   }
 
   return (
@@ -512,6 +519,10 @@ export function CodeArea({ code, setCode, readOnly = false }) {
         value={code}
         onChange={(e) => !readOnly && setCode(e.target.value)}
         onKeyDown={handleKeyDown}
+        onCopy={blockClipboard ? blockClipboardEvent : undefined}
+        onCut={blockClipboard ? blockClipboardEvent : undefined}
+        onPaste={blockClipboard ? blockClipboardEvent : undefined}
+        onContextMenu={blockClipboard ? blockClipboardEvent : undefined}
         readOnly={readOnly}
         spellCheck={false}
         className="flex-1 bg-transparent p-3 resize-none focus:outline-none font-mono"
