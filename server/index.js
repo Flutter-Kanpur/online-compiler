@@ -420,7 +420,13 @@ async function endInterviewRoom(roomId, reason) {
   rooms.delete(roomId);
   clearPendingPersist(roomId);
   clearAutoEndTimer(roomId);
-  await deleteRoomRow(roomId);
+  // Deliberately NOT deleting the Supabase row here. interview_rooms is what
+  // Interview History lists from (fetchInterviewRoomsHistory) — hard-deleting
+  // on end meant every interview vanished from history the moment it
+  // actually finished, which defeats the whole feature. The row still
+  // expires naturally via the TTL sweep on its own expiresAfterHours window
+  // (the "link stays valid for" setting chosen at creation time), same as
+  // any room nobody ever explicitly ended.
 }
 
 function roomSummary(room) {
