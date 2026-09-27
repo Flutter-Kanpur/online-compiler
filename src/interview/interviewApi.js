@@ -68,9 +68,9 @@ async function adminAuthHeaders() {
   return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
 }
 
-/** Admin-only, on-demand: asks Claude whether a submission's code looks
- * AI-generated. Result is cached server-side (ai_score/ai_reasoning columns)
- * until explicitly re-checked. */
+/** Admin-only, on-demand: asks Gemini (free tier) whether a submission's
+ * code looks AI-generated. Result is cached server-side (ai_score/
+ * ai_reasoning columns) until explicitly re-checked. */
 export async function checkSubmissionAI(submissionId) {
   const headers = await adminAuthHeaders();
   return fetch(`${BASE}/submissions/${submissionId}/check-ai`, { method: "POST", headers }).then(asJson);

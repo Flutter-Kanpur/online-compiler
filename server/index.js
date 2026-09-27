@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { nanoid } from "nanoid";
 import { createClient } from "@supabase/supabase-js";
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenAI } from "@google/genai";
 
 // Manual .env loader — no `dotenv` dependency, and unlike Node's
 // `--env-file` flag this doesn't throw when the file is absent (so
@@ -87,15 +87,18 @@ if (!supabase) {
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || null;
 
 // AI-generated-code detection (POST .../check-ai) — same "configured or
-// null, warn once" pattern as the Supabase client above. A missing key
-// degrades that one endpoint to a 503, never breaks anything else.
-const anthropic = process.env.ANTHROPIC_API_KEY
-  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+// null, warn once" pattern as the Supabase client above. Uses Gemini's free
+// tier (aistudio.google.com/apikey — no credit card needed) rather than a
+// paid API, since this is just an occasional on-demand classification call,
+// not something worth spending real money on. A missing key degrades that
+// one endpoint to a 503, never breaks anything else.
+const gemini = process.env.GEMINI_API_KEY
+  ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
   : null;
 
-if (!anthropic) {
+if (!gemini) {
   console.warn(
-    "[interview-relay] ANTHROPIC_API_KEY not set — AI-generated-code " +
+    "[interview-relay] GEMINI_API_KEY not set — AI-generated-code " +
     "detection disabled; POST .../check-ai will return 503."
   );
 }
@@ -513,9 +516,10 @@ app.delete("/api/interviews/:roomId", async (req, res) => {
 //
 // Unlike every other route in this file, these two require the caller to be
 // a real admin — every other route here is deliberately unauthenticated (an
-// accepted tradeoff), but check-ai makes a paid Anthropic API call per
+// accepted tradeoff), but check-ai makes an external Gemini API call per
 // invocation, so a leaked/guessed submission UUID must not be enough to
-// spend money against it.
+// burn through the free-tier quota (or worse, once/if this ever moves to a
+// paid tier).
 // ---------------------------------------------------------------------------
 
 /**
@@ -596,9 +600,8 @@ Code:
 ${code}`;
 }
 
-function parseAiCheckResponse(message) {
-  const text = (message.content || []).map((b) => (b.type === "text" ? b.text : "")).join("").trim();
-  const cleaned = text.replace(/^```(json)?/i, "").replace(/```$/, "").trim();
+function parseAiCheckResponse(text) {
+  const cleaned = (text || "").trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
   const parsed = JSON.parse(cleaned);
   const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score))));
   const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning.slice(0, 500) : "";
@@ -606,18 +609,42 @@ function parseAiCheckResponse(message) {
   return { score, reasoning };
 }
 
+function isGeminiOverloaded(err) {
+  try {
+    return JSON.parse(err?.message || "")?.error?.code === 503;
+  } catch {
+    return /503|UNAVAILABLE|high demand/i.test(err?.message || "");
+  }
+}
+
+/** Gemini's free tier genuinely returns transient 503s under load (confirmed
+ * empirically, not hypothetical) — a couple of short retries smooths that
+ * over instead of failing the admin's click on a random blip. */
+async function generateContentWithRetry(params, retries = 2) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await gemini.models.generateContent(params);
+    } catch (err) {
+      if (isGeminiOverloaded(err) && attempt < retries) {
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 app.post("/api/interviews/submissions/:submissionId/check-ai", requireAdmin, async (req, res) => {
   if (!supabase) return res.status(503).json({ error: "persistence not configured" });
-  if (!anthropic) return res.status(503).json({ error: "ANTHROPIC_API_KEY not configured" });
+  if (!gemini) return res.status(503).json({ error: "GEMINI_API_KEY not configured" });
   const submission = await fetchSubmissionRow(req.params.submissionId);
   if (!submission) return res.status(404).json({ error: "submission not found" });
   try {
-    const message = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 300,
-      messages: [{ role: "user", content: buildAiCheckPrompt(submission.code, submission.language) }],
+    const response = await generateContentWithRetry({
+      model: "gemini-3.8-flash",
+      contents: buildAiCheckPrompt(submission.code, submission.language),
     });
-    const { score, reasoning } = parseAiCheckResponse(message);
+    const { score, reasoning } = parseAiCheckResponse(response.text);
     const ai_checked_at = new Date().toISOString();
     const { error } = await supabase
       .from("interview_submissions")
