@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { User, Mail, FileText, Loader2, ChevronRight, ArrowLeft, Check, X, Clock, Sparkles, Copy } from "lucide-react";
+import { User, Mail, FileText, Loader2, ChevronRight, ArrowLeft, Check, X, Clock, Sparkles, Copy, GraduationCap, Phone } from "lucide-react";
 import { fetchInterviewRoomsHistory, fetchInterviewSubmissions, fetchInterviewRoomVerdictSummary, fetchAllProblems } from "../../lib/db.js";
 import { checkSubmissionAI, checkSubmissionSimilarity } from "../../interview/interviewApi.js";
 import { formatRelativeTime } from "../../utils/time.js";
@@ -81,13 +81,21 @@ export default function InterviewHistory() {
           <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
             {selectedRoom?.title || "Interview"}
           </div>
-          <div className="flex items-center gap-3 mt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
+          <div className="flex items-center gap-3 mt-1.5 text-xs flex-wrap" style={{ color: "var(--text-muted)" }}>
             {selectedRoom?.candidate_name && (
               <span className="inline-flex items-center gap-1"><User size={12} /> {selectedRoom.candidate_name}</span>
             )}
             {selectedRoom?.candidate_email && (
               <span className="inline-flex items-center gap-1"><Mail size={12} /> {selectedRoom.candidate_email}</span>
             )}
+            {selectedRoom?.candidate_phone && (
+              <span className="inline-flex items-center gap-1"><Phone size={12} /> {selectedRoom.candidate_phone}</span>
+            )}
+            {selectedRoom?.candidate_college && (
+              <span className="inline-flex items-center gap-1"><GraduationCap size={12} /> {selectedRoom.candidate_college}</span>
+            )}
+            {selectedRoom?.candidate_branch && <span>{selectedRoom.candidate_branch}</span>}
+            {selectedRoom?.candidate_year && <span>{selectedRoom.candidate_year}</span>}
             {selectedRoom?.created_at && <span>{formatRelativeTime(selectedRoom.created_at)}</span>}
           </div>
         </div>

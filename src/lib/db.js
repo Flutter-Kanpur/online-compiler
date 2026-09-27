@@ -160,7 +160,7 @@ export async function insertSubmission({
 export async function fetchInterviewRoomsHistory({ limit = 50 } = {}) {
   const { data, error } = await supabase
     .from("interview_rooms")
-    .select("id, title, problem_ids, created_at, candidate_name:state->>candidateName, candidate_email:state->>candidateEmail")
+    .select("id, title, problem_ids, created_at, candidate_name:state->>candidateName, candidate_email:state->>candidateEmail, candidate_college:state->>candidateCollege, candidate_year:state->>candidateYear, candidate_branch:state->>candidateBranch, candidate_phone:state->>candidatePhone")
     .eq("is_template", false)
     .order("created_at", { ascending: false })
     .limit(limit);

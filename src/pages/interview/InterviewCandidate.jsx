@@ -23,6 +23,10 @@ export default function InterviewCandidate({ roomId }) {
   const [problemsById, setProblemsById] = useState(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [college, setCollege] = useState("");
+  const [year, setYear] = useState("");
+  const [branch, setBranch] = useState("");
+  const [phone, setPhone] = useState("");
   const [joined, setJoined] = useState(false);
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState(null);
@@ -30,9 +34,14 @@ export default function InterviewCandidate({ roomId }) {
   // Read once, like App.jsx's own one-time route parse — this app has no
   // client-side router, so a freshly-forked room (see handleTemplateJoin
   // below) has to arrive here via a real navigation, and this is how the
-  // candidate's name/email survive that trip without asking them to type it twice.
-  const nameFromFork = useMemo(() => new URLSearchParams(window.location.search).get("name"), []);
-  const emailFromFork = useMemo(() => new URLSearchParams(window.location.search).get("email"), []);
+  // candidate's details survive that trip without asking them to re-enter them.
+  const params = useMemo(() => new URLSearchParams(window.location.search), []);
+  const nameFromFork = params.get("name");
+  const emailFromFork = params.get("email");
+  const collegeFromFork = params.get("college");
+  const yearFromFork = params.get("year");
+  const branchFromFork = params.get("branch");
+  const phoneFromFork = params.get("phone");
 
   useEffect(() => {
     getInterview(roomId)
@@ -41,6 +50,10 @@ export default function InterviewCandidate({ roomId }) {
         if (nameFromFork) {
           setName(nameFromFork);
           setEmail(emailFromFork || "");
+          setCollege(collegeFromFork || "");
+          setYear(yearFromFork || "");
+          setBranch(branchFromFork || "");
+          setPhone(phoneFromFork || "");
           setJoined(true);
         }
       })
@@ -48,14 +61,15 @@ export default function InterviewCandidate({ roomId }) {
     fetchAllProblems()
       .then((list) => setProblemsById(Object.fromEntries(list.map((p) => [p.id, p]))))
       .catch(() => setProblemsById({}));
-  }, [roomId, nameFromFork, emailFromFork]);
+  }, [roomId, nameFromFork, emailFromFork, collegeFromFork, yearFromFork, branchFromFork, phoneFromFork]);
 
-  async function handleTemplateJoin(enteredName, enteredEmail) {
+  async function handleTemplateJoin(details) {
     setForking(true);
     setForkError(null);
     try {
-      const forked = await forkInterview(roomId, enteredName);
-      window.location.replace(`/interview/${forked.roomId}/candidate?name=${encodeURIComponent(enteredName)}&email=${encodeURIComponent(enteredEmail)}`);
+      const forked = await forkInterview(roomId, details.name);
+      const q = new URLSearchParams(details).toString();
+      window.location.replace(`/interview/${forked.roomId}/candidate?${q}`);
     } catch (e) {
       setForkError(e.message);
       setForking(false);
@@ -65,26 +79,37 @@ export default function InterviewCandidate({ roomId }) {
   if (roomError) return <CenteredMessage title="This interview link isn't valid" detail={roomError} />;
   if (!room || !problemsById) return <CenteredMessage title="Loading interview…" spinner />;
 
+  const details = { name, email, college, year, branch, phone };
+
   if (!joined) {
     return (
       <NameGate
         title={room.title}
-        name={name}
-        setName={setName}
-        email={email}
-        setEmail={setEmail}
-        onJoin={() => (room.isTemplate ? handleTemplateJoin(name, email) : setJoined(true))}
+        details={details}
+        setters={{ setName, setEmail, setCollege, setYear, setBranch, setPhone }}
+        onJoin={() => (room.isTemplate ? handleTemplateJoin(details) : setJoined(true))}
         joining={forking}
         error={forkError}
       />
     );
   }
 
-  return <CandidateWorkspace room={room} problemsById={problemsById} candidateName={name} candidateEmail={email} roomId={roomId} />;
+  return <CandidateWorkspace room={room} problemsById={problemsById} candidateDetails={details} roomId={roomId} />;
 }
 
-function NameGate({ title, name, setName, email, setEmail, onJoin, joining, error }) {
-  const canJoin = name.trim() && email.trim().includes("@") && !joining;
+const CANDIDATE_FIELDS = [
+  { key: "name", placeholder: "Your name", type: "text" },
+  { key: "email", placeholder: "Your email", type: "email" },
+  { key: "college", placeholder: "Your college", type: "text" },
+  { key: "year", placeholder: "Year (e.g. 3rd Year)", type: "text" },
+  { key: "branch", placeholder: "Branch (e.g. Computer Science)", type: "text" },
+  { key: "phone", placeholder: "Phone number", type: "tel" },
+];
+
+function NameGate({ title, details, setters, onJoin, joining, error }) {
+  const canJoin = CANDIDATE_FIELDS.every(({ key }) => details[key].trim())
+    && details.email.trim().includes("@")
+    && !joining;
   return (
     <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "var(--bg-app)" }}>
       <div className="card p-8 w-full max-w-sm text-center">
@@ -96,24 +121,20 @@ function NameGate({ title, name, setName, email, setEmail, onJoin, joining, erro
         </div>
         <div className="text-lg font-bold mb-1" style={{ color: "var(--text-primary)" }}>{title}</div>
         <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
-          Enter your name and email so the interviewer knows it's you, then start solving.
+          Enter your details so the interviewer knows it's you, then start solving.
         </p>
-        <input
-          autoFocus
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && canJoin) onJoin(); }}
-          placeholder="Your name"
-          className="input-field mb-3 text-center"
-        />
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && canJoin) onJoin(); }}
-          placeholder="Your email"
-          className="input-field mb-4 text-center"
-        />
+        {CANDIDATE_FIELDS.map(({ key, placeholder, type }, i) => (
+          <input
+            key={key}
+            autoFocus={i === 0}
+            type={type}
+            value={details[key]}
+            onChange={(e) => setters[`set${key[0].toUpperCase()}${key.slice(1)}`](e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && canJoin) onJoin(); }}
+            placeholder={placeholder}
+            className={`input-field text-center ${i === CANDIDATE_FIELDS.length - 1 ? "mb-4" : "mb-3"}`}
+          />
+        ))}
         {error && <p className="text-xs mb-3" style={{ color: "#b91c1c" }}>{error}</p>}
         <button
           className="btn-primary w-full justify-center"
@@ -127,7 +148,8 @@ function NameGate({ title, name, setName, email, setEmail, onJoin, joining, erro
   );
 }
 
-function CandidateWorkspace({ room, problemsById, candidateName, candidateEmail, roomId }) {
+function CandidateWorkspace({ room, problemsById, candidateDetails, roomId }) {
+  const { name: candidateName } = candidateDetails;
   const problems = room.problemIds.map((id) => problemsById[id]).filter(Boolean);
   const [activeId, setActiveId] = useState(
     problems[0]?.id ?? (room.flutterRound ? FLUTTER_TAB : room.webuiRound ? WEBUI_TAB : undefined)
@@ -185,10 +207,10 @@ function CandidateWorkspace({ room, problemsById, candidateName, candidateEmail,
   const sentNameRef = useRef(false);
   useEffect(() => {
     if (connected && !sentNameRef.current) {
-      send({ type: "name", name: candidateName, email: candidateEmail });
+      send({ type: "name", ...candidateDetails });
       sentNameRef.current = true;
     }
-  }, [connected, candidateName, candidateEmail, send]);
+  }, [connected, candidateDetails, send]);
 
   const code = (isFlutterTab || isWebUITab) ? "" : (codeByProblem[activeId] ?? starterFor(activeProblem, language));
 

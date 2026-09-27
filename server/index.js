@@ -165,6 +165,10 @@ function makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPromp
       webui: { ...DEFAULT_WEBUI },
       candidateName: null,
       candidateEmail: null,
+      candidateCollege: null,
+      candidateYear: null,
+      candidateBranch: null,
+      candidatePhone: null,
       candidateConnected: false,
       testStartedAt: null,
     },
@@ -265,6 +269,10 @@ async function persistInterviewSubmission(room, problemId, result) {
       room_title: room.title,
       candidate_name: room.state.candidateName,
       candidate_email: room.state.candidateEmail,
+      candidate_college: room.state.candidateCollege,
+      candidate_year: room.state.candidateYear,
+      candidate_branch: room.state.candidateBranch,
+      candidate_phone: room.state.candidatePhone,
       problem_id: problemId,
       kind: "submit",
       language: room.state.language,
@@ -447,6 +455,10 @@ function roomSummary(room) {
     candidateConnected: room.state.candidateConnected,
     candidateName: room.state.candidateName,
     candidateEmail: room.state.candidateEmail,
+    candidateCollege: room.state.candidateCollege,
+    candidateYear: room.state.candidateYear,
+    candidateBranch: room.state.candidateBranch,
+    candidatePhone: room.state.candidatePhone,
     interviewerCount: room.interviewerSockets.size,
   };
 }
@@ -771,6 +783,10 @@ function applyCandidateMessage(room, msg) {
     case "name":
       room.state.candidateName = msg.name;
       room.state.candidateEmail = msg.email ?? null;
+      room.state.candidateCollege = msg.college ?? null;
+      room.state.candidateYear = msg.year ?? null;
+      room.state.candidateBranch = msg.branch ?? null;
+      room.state.candidatePhone = msg.phone ?? null;
       // First time this room's candidate has ever identified themselves:
       // if a time limit is set, this is when the countdown starts (not
       // room-creation time — the candidate usually joins some time later).
