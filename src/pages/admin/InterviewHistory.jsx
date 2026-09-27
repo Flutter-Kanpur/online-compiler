@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { User, Mail, FileText, Loader2, ChevronRight, ArrowLeft, Check, X, Clock, Sparkles, Copy } from "lucide-react";
 import { fetchInterviewRoomsHistory, fetchInterviewSubmissions, fetchInterviewRoomVerdictSummary, fetchAllProblems } from "../../lib/db.js";
 import { checkSubmissionAI, checkSubmissionSimilarity } from "../../interview/interviewApi.js";
@@ -14,13 +14,23 @@ export default function InterviewHistory() {
   const [aiState, setAiState] = useState({});
   const [similarityState, setSimilarityState] = useState({});
 
-  useEffect(() => {
+  // Polled like Interviews.jsx's "Active interviews" list — a candidate
+  // joining/submitting through a reusable link happens after this page has
+  // already loaded, so a one-time fetch would otherwise look like nothing
+  // was ever recorded until a manual reload.
+  const refresh = useCallback(() => {
     fetchInterviewRoomsHistory()
       .then(setRooms)
       .catch((e) => setError(e.message || String(e)));
-    fetchAllProblems().then(setProblems).catch(() => {});
     fetchInterviewRoomVerdictSummary().then(setVerdictSummary).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    refresh();
+    fetchAllProblems().then(setProblems).catch(() => {});
+    const id = setInterval(refresh, 5000);
+    return () => clearInterval(id);
+  }, [refresh]);
 
   useEffect(() => {
     if (!selectedRoomId) return;
