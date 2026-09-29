@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Video, Copy, Check, ExternalLink, X, AlertTriangle, User, Loader2, Smartphone, Globe, Clock, Link2 } from "lucide-react";
 import { fetchAllProblems } from "../../lib/db.js";
 import {
@@ -10,6 +10,7 @@ export default function Interviews() {
   const [problemsLoading, setProblemsLoading] = useState(true);
   const [selected, setSelected] = useState(new Set());
   const [title, setTitle] = useState("");
+  const [candidateTitle, setCandidateTitle] = useState("");
   const [candidateCount, setCandidateCount] = useState("1");
   const [isTemplate, setIsTemplate] = useState(false);
   const [timeLimitMinutes, setTimeLimitMinutes] = useState("");
@@ -27,6 +28,9 @@ export default function Interviews() {
 
   const [interviews, setInterviews] = useState([]);
   const [serverDown, setServerDown] = useState(false);
+
+  const formRef = useRef(null);
+  const [duplicatedFrom, setDuplicatedFrom] = useState(null);
 
   useEffect(() => {
     fetchAllProblems().then(setProblems).catch(() => {}).finally(() => setProblemsLoading(false));
@@ -70,7 +74,7 @@ export default function Interviews() {
         // a single room's title stays exactly as typed.
         const roomTitle = count > 1 && title.trim() ? `${title.trim()} — Candidate ${i + 1}` : title;
         const room = await createInterview({
-          title: roomTitle, problemIds: [...selected], flutterRound,
+          title: roomTitle, candidateTitle: candidateTitle.trim() || null, problemIds: [...selected], flutterRound,
           flutterGistId: flutterGistId.trim() || null,
           flutterPrompt: flutterPrompt.trim() || null,
           webuiRound,
@@ -84,6 +88,7 @@ export default function Interviews() {
       setLastCreatedRooms(rooms);
       setSelected(new Set());
       setTitle("");
+      setCandidateTitle("");
       setCandidateCount("1");
       setIsTemplate(false);
       setTimeLimitMinutes("");
@@ -93,6 +98,7 @@ export default function Interviews() {
       setFlutterPrompt("");
       setWebuiRound(false);
       setWebuiPrompt("");
+      setDuplicatedFrom(null);
       refresh();
     } catch (e) {
       // Keep whatever rooms already got created (each is fully usable on
@@ -121,6 +127,27 @@ export default function Interviews() {
     refresh();
   }
 
+  /** Prefills the create form from an existing room, so recreating it with
+   * a tweaked timeline doesn't mean retyping every field by hand — the
+   * admin still reviews and clicks Create themselves, nothing auto-submits. */
+  function duplicateFrom(r) {
+    setTitle(r.title || "");
+    setCandidateTitle(r.candidateTitle || "");
+    setSelected(new Set(r.problemIds || []));
+    setCandidateCount("1");
+    setIsTemplate(!!r.isTemplate);
+    setTimeLimitMinutes(r.timeLimitMinutes != null ? String(r.timeLimitMinutes) : "");
+    setExpiresAfterHours(r.expiresAfterHours != null ? String(r.expiresAfterHours) : "8");
+    setFlutterRound(!!r.flutterRound);
+    setFlutterGistId(r.flutterGistId || "");
+    setFlutterPrompt(r.flutterPrompt || "");
+    setWebuiRound(!!r.webuiRound);
+    setWebuiPrompt(r.webuiPrompt || "");
+    setCreateError(null);
+    setDuplicatedFrom(r.title || "Interview");
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       {serverDown && (
@@ -135,17 +162,33 @@ export default function Interviews() {
         </div>
       )}
 
-      <div className="card p-5">
+      <div ref={formRef} className="card p-5">
         <div className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>New interview room</div>
         <p className="text-xs mb-4" style={{ color: "var(--text-muted)" }}>
           Pick 1–3 DSA problems for the round. You'll get a candidate link (they solve) and an interviewer link
           (you watch their code and verdicts live, no screen share needed).
         </p>
 
+        {duplicatedFrom && (
+          <div className="flex items-center justify-between gap-2 text-xs mb-4 px-3 py-2 rounded-lg"
+               style={{ background: "var(--accent-soft)", color: "var(--text-primary)" }}>
+            <span>Prefilled from "{duplicatedFrom}" — review the timeline and click Create.</span>
+            <button onClick={() => setDuplicatedFrom(null)} className="btn-ghost !px-1.5 !py-0.5">
+              <X size={12} />
+            </button>
+          </div>
+        )}
+
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Round title (optional) — e.g. FKCCL Organizer Round 1"
+          placeholder="Admin title (optional) — e.g. FKCCL Organizer Round 1"
+          className="input-field mb-3"
+        />
+        <input
+          value={candidateTitle}
+          onChange={(e) => setCandidateTitle(e.target.value)}
+          placeholder="Candidate-facing title (optional — defaults to the title above)"
           className="input-field mb-4"
         />
 
@@ -404,6 +447,14 @@ export default function Interviews() {
                         <User size={11} /> {r.candidateName}
                       </span>
                     )}
+                    <button
+                      onClick={() => duplicateFrom(r)}
+                      disabled={creating}
+                      className="btn-ghost text-xs !px-2 !py-1"
+                      title="Duplicate this interview"
+                    >
+                      <Copy size={12} /> Duplicate
+                    </button>
                     <button
                       onClick={() => handleEnd(r.roomId)}
                       className="btn-ghost text-xs !px-2 !py-1"

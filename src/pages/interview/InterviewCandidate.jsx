@@ -84,7 +84,7 @@ export default function InterviewCandidate({ roomId }) {
   if (!joined) {
     return (
       <NameGate
-        title={room.title}
+        title={room.candidateTitle || room.title}
         details={details}
         setters={{ setName, setEmail, setCollege, setYear, setBranch, setPhone }}
         onJoin={() => (room.isTemplate ? handleTemplateJoin(details) : setJoined(true))}
@@ -339,7 +339,7 @@ function CandidateWorkspace({ room, problemsById, candidateDetails, roomId }) {
         style={{ background: "rgba(255,255,255,0.9)", backdropFilter: "blur(8px)", borderBottom: "1px solid var(--border)" }}
       >
         <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-          <Zap size={16} style={{ color: "var(--accent)" }} /> {room.title}
+          <Zap size={16} style={{ color: "var(--accent)" }} /> {room.candidateTitle || room.title}
         </div>
         <div className="flex items-center gap-3 text-xs" style={{ color: "var(--text-muted)" }}>
           <span>{candidateName}</span>

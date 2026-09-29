@@ -140,11 +140,12 @@ function roomExpiryMs(room) {
   return (room.expiresAfterHours ?? DEFAULT_ROOM_TTL_HOURS) * 60 * 60 * 1000;
 }
 
-function makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours, isTemplate }) {
+function makeRoom({ title, candidateTitle, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours, isTemplate }) {
   const id = nanoid(8);
   const room = {
     id,
     title: title && title.trim() ? title.trim() : "Interview",
+    candidateTitle: candidateTitle && candidateTitle.trim() ? candidateTitle.trim() : null,
     problemIds,
     flutterRound: !!flutterRound,
     flutterGistId: flutterGistId && flutterGistId.trim() ? flutterGistId.trim() : null,
@@ -196,6 +197,7 @@ function roomToRow(room) {
   return {
     id: room.id,
     title: room.title,
+    candidate_title: room.candidateTitle,
     problem_ids: room.problemIds,
     flutter_round: room.flutterRound,
     flutter_gist_id: room.flutterGistId,
@@ -214,6 +216,7 @@ function rowToRoom(row) {
   return {
     id: row.id,
     title: row.title,
+    candidateTitle: row.candidate_title ?? null,
     problemIds: row.problem_ids || [],
     flutterRound: row.flutter_round,
     flutterGistId: row.flutter_gist_id,
@@ -441,6 +444,7 @@ function roomSummary(room) {
   return {
     roomId: room.id,
     title: room.title,
+    candidateTitle: room.candidateTitle ?? null,
     problemIds: room.problemIds,
     flutterRound: room.flutterRound,
     flutterGistId: room.flutterGistId,
@@ -464,7 +468,7 @@ function roomSummary(room) {
 }
 
 app.post("/api/interviews", (req, res) => {
-  const { title, problemIds = [], flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours, isTemplate } = req.body || {};
+  const { title, candidateTitle, problemIds = [], flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours, isTemplate } = req.body || {};
   if (!Array.isArray(problemIds)) {
     return res.status(400).json({ error: "problemIds must be an array" });
   }
@@ -479,7 +483,7 @@ app.post("/api/interviews", (req, res) => {
   if (expiresAfterHours != null && expiresAfterHours !== "" && !(Number.isFinite(Number(expiresAfterHours)) && Number(expiresAfterHours) > 0)) {
     return res.status(400).json({ error: "expiresAfterHours must be a positive number" });
   }
-  const room = makeRoom({ title, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours, isTemplate });
+  const room = makeRoom({ title, candidateTitle, problemIds, flutterRound, flutterGistId, flutterPrompt, webuiRound, webuiPrompt, timeLimitMinutes, expiresAfterHours, isTemplate });
   res.json(roomSummary(room));
 });
 
@@ -495,6 +499,7 @@ app.post("/api/interviews/:roomId/fork", async (req, res) => {
   if (!name) return res.status(400).json({ error: "name is required" });
   const forked = makeRoom({
     title: room.title,
+    candidateTitle: room.candidateTitle,
     problemIds: room.problemIds,
     flutterRound: room.flutterRound,
     flutterGistId: room.flutterGistId,
