@@ -439,6 +439,15 @@ export default function Interviews() {
                         <Clock size={10} /> link valid {formatExpiryLabel(r.expiresAfterHours)}
                       </span>
                     )}
+                    {r.createdAt && r.expiresAfterHours && (() => {
+                      const t = timeUntilExpiry(r.createdAt, r.expiresAfterHours);
+                      return (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                              style={{ background: t.background, color: t.color }}>
+                          <Clock size={10} /> {t.label}
+                        </span>
+                      );
+                    })()}
                   </div>
                   <div className="flex items-center gap-2">
                     <StatusPill connected={r.candidateConnected} label={r.candidateConnected ? "candidate live" : "candidate offline"} />
@@ -481,6 +490,24 @@ function formatExpiryLabel(hours) {
     return `${days}d`;
   }
   return `${hours}h`;
+}
+
+/** How much longer this room's link stays joinable — distinct from
+ * formatExpiryLabel, which shows the total configured window, not what's
+ * actually left. Colored by urgency so a nearly-dead reusable link stands
+ * out while scanning the list. */
+function timeUntilExpiry(createdAt, expiresAfterHours) {
+  const remainingMs = createdAt + expiresAfterHours * 60 * 60 * 1000 - Date.now();
+  if (remainingMs <= 0) return { label: "expired", background: "#fee2e2", color: "#b91c1c" };
+  const hoursLeft = remainingMs / (60 * 60 * 1000);
+  if (hoursLeft < 24) {
+    return { label: `${Math.max(1, Math.round(hoursLeft))}h left`, background: "#fee2e2", color: "#b91c1c" };
+  }
+  const daysLeft = Math.floor(hoursLeft / 24);
+  if (daysLeft < 3) {
+    return { label: `${daysLeft}d left`, background: "#fef3c7", color: "#92400e" };
+  }
+  return { label: `${daysLeft}d left`, background: "#f4f4f5", color: "var(--text-muted)" };
 }
 
 function LinkRow({ label, url, primary, compact }) {
