@@ -343,6 +343,20 @@ export async function fetchUserStats(userId, allProblems) {
 // users (admin/Users.jsx)
 // ---------------------------------------------------------------------------
 
+/** Platform-wide ranking by total problems solved — top `limit` only.
+ * Mirrors fetchContestLeaderboard's row-mapping convention exactly. */
+export async function fetchGlobalLeaderboard({ limit = 100 } = {}) {
+  const { data, error } = await supabase.rpc("get_global_leaderboard", { p_limit: limit });
+  if (error) throw error;
+  return (data || []).map((row) => ({
+    userId: row.user_id,
+    username: row.username,
+    name: row.name,
+    solvedCount: row.solved_count,
+    rank: row.rank,
+  }));
+}
+
 export async function fetchAllUsers() {
   const { data, error } = await supabase
     .from("profiles")

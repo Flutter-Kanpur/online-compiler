@@ -15,6 +15,7 @@ import InterviewInterviewer from "./pages/interview/InterviewInterviewer.jsx";
 import ContestsList from "./pages/contests/ContestsList.jsx";
 import ContestWorkspace from "./pages/contests/ContestWorkspace.jsx";
 import ContestLeaderboard from "./pages/contests/ContestLeaderboard.jsx";
+import GlobalLeaderboard from "./pages/GlobalLeaderboard.jsx";
 import SheetDetail from "./pages/sheets/SheetDetail.jsx";
 
 // A candidate/interviewer link (e.g. /interview/ab12cd34/candidate) opens
@@ -180,6 +181,7 @@ function MainApp() {
           onHome={() => go({ name: "list" })}
           onProfile={() => go({ name: "profile" })}
           onContests={() => go({ name: "contests" })}
+          onLeaderboard={() => go({ name: "leaderboard" })}
           onAdmin={() => go({ name: "admin", subview: "dashboard" })}
           onSignOut={handleSignOut}
           currentView={view.name}
@@ -250,6 +252,7 @@ function MainApp() {
             onBack={() => go({ name: "contest", contest: view.contest })}
           />
         )}
+        {view.name === "leaderboard" && <GlobalLeaderboard />}
         {view.name === "admin" && !isAdmin && (
           <NotAdmin onBack={() => go({ name: "list" })} />
         )}
@@ -300,7 +303,7 @@ function NotAdmin({ onBack }) {
 // ---------------------------------------------------------------------------
 //  Topbar
 // ---------------------------------------------------------------------------
-function Topbar({ user, isAdmin, menuOpen, setMenuOpen, onHome, onProfile, onContests, onAdmin, onSignOut, currentView }) {
+function Topbar({ user, isAdmin, menuOpen, setMenuOpen, onHome, onProfile, onContests, onLeaderboard, onAdmin, onSignOut, currentView }) {
   return (
     <header
       className="sticky top-0 z-40 backdrop-blur-md"
@@ -337,6 +340,7 @@ function Topbar({ user, isAdmin, menuOpen, setMenuOpen, onHome, onProfile, onCon
           <nav className="hidden md:flex items-center gap-1">
             <NavLink active={currentView === "list"} onClick={onHome}>Problems</NavLink>
             <NavLink active={currentView === "contests" || currentView === "contest" || currentView === "contestLeaderboard"} onClick={onContests}>Contests</NavLink>
+            <NavLink active={currentView === "leaderboard"} onClick={onLeaderboard}>Leaderboard</NavLink>
             <NavLink active={currentView === "profile"} onClick={onProfile}>Profile</NavLink>
           </nav>
         </div>
