@@ -61,7 +61,7 @@ export default function GlobalLeaderboard() {
               className="px-5 py-3 flex items-center text-[11px] font-semibold uppercase tracking-wider text-white"
               style={{ background: "linear-gradient(135deg, #13B9FD 0%, #0553B1 100%)" }}
             >
-              <div className="w-10" />
+              <div className="w-10 flex-shrink-0">Rank</div>
               <div className="flex-1">Participant</div>
               <div className="flex-shrink-0">Solved</div>
             </div>
