@@ -91,7 +91,7 @@ export default function GlobalLeaderboard() {
           <select
             value={country}
             onChange={(e) => { setCountry(e.target.value); setPage(0); }}
-            className="input !w-auto text-sm"
+            className="input-field !w-auto text-sm"
           >
             <option value="">All countries</option>
             {countries.map((c) => (
