@@ -352,6 +352,7 @@ export async function fetchGlobalLeaderboard({ limit = 100 } = {}) {
     userId: row.user_id,
     username: row.username,
     name: row.name,
+    countryCode: row.country_code ?? null,
     solvedCount: row.solved_count,
     rank: row.rank,
   }));

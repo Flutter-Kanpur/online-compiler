@@ -3,6 +3,22 @@ import { supabase, isSupabaseConfigured } from "./supabaseClient.js";
 
 const AuthContext = createContext(null);
 
+// Fills in profiles.country_code once, from the visitor's network (Vercel's
+// edge geo header via /api/geo). Silent no-op where that endpoint doesn't
+// exist (local dev) or the column isn't there yet.
+async function detectCountry(userId, profile, setProfile) {
+  try {
+    const res = await fetch("/api/geo");
+    if (!res.ok) return;
+    const { country } = await res.json();
+    if (!country) return;
+    const { error } = await supabase.from("profiles").update({ country_code: country }).eq("id", userId);
+    if (!error) setProfile({ ...profile, country_code: country });
+  } catch {
+    // best-effort only
+  }
+}
+
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -15,6 +31,7 @@ export function AuthProvider({ children }) {
     }
     const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
     setProfile(data || null);
+    if (data && !data.country_code) detectCountry(userId, data, setProfile);
   }, []);
 
   useEffect(() => {
