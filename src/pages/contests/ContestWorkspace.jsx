@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Play, Send, Loader2, Trophy, ArrowLeft, Lock, Check } from "lucide-react";
+import { Play, Send, Loader2, Trophy, ArrowLeft, Lock, Check, CalendarPlus } from "lucide-react";
 import { useAuth } from "../../lib/auth.jsx";
 import { fetchContest, submitContestSolution, fetchMyContestSubmissions, contestStatus, hasContestAccess, rsvpContest, fetchRsvpCount } from "../../lib/contestsApi.js";
 import { useCountdown } from "../../hooks/useCountdown.js";
+import { googleCalendarUrl, downloadIcs } from "../../lib/calendar.js";
 import {
   LANG, LANG_BY_CATEGORY, starterFor, judge0Run, classifyVerdict,
   ProblemDescription, CodeArea, ResultsView, Tab,
@@ -288,7 +289,18 @@ function UpcomingScreen({ contest, onBack }) {
         <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
           {isPast ? "Starting…" : "Hasn't started yet."} {contest.problems.length} problem{contest.problems.length === 1 ? "" : "s"}.
         </p>
-        <div className="text-2xl font-mono font-bold mb-5" style={{ color: "var(--accent)" }}>{formatted}</div>
+        <div className="text-2xl font-mono font-bold mb-2" style={{ color: "var(--accent)" }}>{formatted}</div>
+        <div className="text-xs mb-5" style={{ color: "var(--text-muted)" }}>
+          {new Date(contest.startsAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+        </div>
+        <div className="flex gap-2 mb-3">
+          <a href={googleCalendarUrl(contest)} target="_blank" rel="noreferrer" className="btn-primary flex-1 justify-center text-xs">
+            <CalendarPlus size={14} /> Google Calendar
+          </a>
+          <button onClick={() => downloadIcs(contest)} className="btn-secondary flex-1 justify-center text-xs">
+            <CalendarPlus size={14} /> Apple / Outlook
+          </button>
+        </div>
         <button className="btn-secondary w-full justify-center" onClick={onBack}>Back to contests</button>
       </div>
     </div>
