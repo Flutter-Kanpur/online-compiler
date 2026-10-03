@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { useAuth } from "../lib/auth.jsx";
 import { fetchGlobalLeaderboard } from "../lib/db.js";
+import { Flag, countryName } from "../lib/country.jsx";
 
 const PAGE_SIZE = 15;
 
@@ -16,27 +17,6 @@ function Avatar({ name, size = 36 }) {
     >
       {initials}
     </div>
-  );
-}
-
-const regionNames = (() => {
-  try { return new Intl.DisplayNames(["en"], { type: "region" }); } catch { return null; }
-})();
-const countryName = (code) => {
-  try { return regionNames?.of(code) || code; } catch { return code; }
-};
-
-function Flag({ code }) {
-  const [broken, setBroken] = useState(false);
-  if (!code || broken) return null;
-  return (
-    <img
-      src={`https://flagcdn.com/w40/${code.toLowerCase()}.png`}
-      alt={code}
-      onError={() => setBroken(true)}
-      className="rounded-sm flex-shrink-0 object-cover"
-      style={{ height: 14, width: 20, boxShadow: "0 0 0 1px rgba(0,0,0,0.1)" }}
-    />
   );
 }
 
@@ -73,7 +53,7 @@ export default function GlobalLeaderboard() {
   const filtered = useMemo(() => (rows || []).filter((r) => !country || r.countryCode === country), [rows, country]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
-  const topScore = filtered[0]?.solvedCount || 1;
+  const topScore = Math.max(1, ...filtered.map((r) => r.score));
 
   const myRow = rows?.find((r) => r.userId === user?.id);
   const totalSolved = (rows || []).reduce((sum, r) => sum + r.solvedCount, 0);
@@ -84,7 +64,7 @@ export default function GlobalLeaderboard() {
         <div>
           <h1 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>Leaderboard</h1>
           <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
-            Ranked by total problems solved, across the whole platform.
+            Ranked by score: problem difficulty, attempts taken, and topics covered.
           </p>
         </div>
         {countries.length > 0 && (
@@ -115,6 +95,18 @@ export default function GlobalLeaderboard() {
             <Stat label="Your rank" value={myRow ? `#${myRow.rank}` : "—"} />
           </div>
 
+          <details className="card px-5 py-3 mb-6 text-sm" style={{ color: "var(--text-secondary)" }}>
+            <summary className="cursor-pointer font-medium flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
+              <Info size={15} style={{ color: "var(--accent)" }} /> How scoring works
+            </summary>
+            <ul className="mt-3 space-y-1.5 list-disc pl-5">
+              <li><b>Difficulty:</b> each solved problem earns 5 (starter), 10 (easy), 25 (medium) or 50 (hard) points.</li>
+              <li><b>Attempts:</b> a first-try Accepted earns +10%. Each wrong Submit (wrong answer, time limit, runtime error) before your first Accepted costs 10%, down to a floor of 50%. Runs and compile errors never count.</li>
+              <li><b>Topics:</b> +5 points for every distinct topic you've solved a problem in (arrays, strings, graphs, DP…), up to 15 topics.</li>
+              <li>Ties are broken by problems solved.</li>
+            </ul>
+          </details>
+
           <div className="card overflow-hidden">
             <div
               className="flex items-center gap-4 px-5 py-3 text-[11px] font-semibold uppercase tracking-wider border-b"
@@ -123,8 +115,9 @@ export default function GlobalLeaderboard() {
               <div className="w-10 text-center">Rank</div>
               <div className="flex-1">Participant</div>
               <div className="hidden md:block w-40">Country</div>
-              <div className="hidden sm:block w-32" />
-              <div className="w-12 text-right">Solved</div>
+              <div className="hidden sm:block w-28" />
+              <div className="hidden sm:block w-14 text-right">Solved</div>
+              <div className="w-16 text-right">Score</div>
             </div>
 
             {pageRows.length === 0 ? (
@@ -177,16 +170,19 @@ export default function GlobalLeaderboard() {
                           <span style={{ color: "var(--text-muted)" }}>—</span>
                         )}
                       </div>
-                      <div className="hidden sm:block w-32 flex-shrink-0">
+                      <div className="hidden sm:block w-28 flex-shrink-0">
                         <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
                           <div
                             className="h-full rounded-full"
-                            style={{ width: `${Math.max(4, (r.solvedCount / topScore) * 100)}%`, background: "var(--accent)" }}
+                            style={{ width: `${Math.max(4, (r.score / topScore) * 100)}%`, background: "var(--accent)" }}
                           />
                         </div>
                       </div>
-                      <div className="w-12 text-right text-base font-bold" style={{ color: "var(--text-primary)" }}>
+                      <div className="hidden sm:block w-14 text-right text-sm" style={{ color: "var(--text-secondary)" }} title={`${r.firstTryCount} first-try · ${r.topicCount} topics`}>
                         {r.solvedCount}
+                      </div>
+                      <div className="w-16 text-right text-base font-bold" style={{ color: "var(--text-primary)" }}>
+                        {r.score}
                       </div>
                     </div>
                   );

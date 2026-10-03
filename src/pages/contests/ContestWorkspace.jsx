@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Play, Send, Loader2, Trophy, ArrowLeft, Lock, Check } from "lucide-react";
 import { useAuth } from "../../lib/auth.jsx";
-import { fetchContest, submitContestSolution, fetchMyContestSubmissions, contestStatus } from "../../lib/contestsApi.js";
+import { fetchContest, submitContestSolution, fetchMyContestSubmissions, contestStatus, hasContestAccess, rsvpContest, fetchRsvpCount } from "../../lib/contestsApi.js";
 import { useCountdown } from "../../hooks/useCountdown.js";
 import {
   LANG, LANG_BY_CATEGORY, starterFor, judge0Run, classifyVerdict,
@@ -13,12 +13,23 @@ export default function ContestWorkspace({ contest: contestSummary, onBack, onOp
   const [contest, setContest] = useState(null);
   const [error, setError] = useState(null);
   const [solvedByProblem, setSolvedByProblem] = useState({});
+  const [access, setAccess] = useState(contestSummary.requiresAccess ? null : true);
 
   useEffect(() => {
+    if (!contestSummary.requiresAccess) return;
+    hasContestAccess(contestSummary.id).then(setAccess).catch(() => setAccess(false));
+  }, [contestSummary.id, contestSummary.requiresAccess]);
+
+  useEffect(() => {
+    if (access !== true) return;
     fetchContest(contestSummary.id).then(setContest).catch((e) => setError(e.message));
     fetchMyContestSubmissions(user.id, contestSummary.id).then(setSolvedByProblem).catch(() => {});
-  }, [contestSummary.id, user.id]);
+  }, [contestSummary.id, user.id, access]);
 
+  if (access === null) return <CenteredMessage title="Checking access…" spinner onBack={onBack} />;
+  if (access === false) {
+    return <RsvpGate contest={contestSummary} onUnlocked={() => setAccess(true)} onBack={onBack} />;
+  }
   if (error) return <CenteredMessage title="Couldn't load this contest" detail={error} onBack={onBack} />;
   if (!contest) return <CenteredMessage title="Loading contest…" spinner onBack={onBack} />;
 
@@ -292,6 +303,61 @@ function CenteredMessage({ title, detail, spinner, onBack }) {
         <div className="text-base font-semibold mb-1" style={{ color: "var(--text-primary)" }}>{title}</div>
         {detail && <div className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>{detail}</div>}
         {onBack && <button className="btn-secondary" onClick={onBack}>Back</button>}
+      </div>
+    </div>
+  );
+}
+
+function RsvpGate({ contest, onUnlocked, onBack }) {
+  const [going, setGoing] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const ended = contestStatus(contest) === "ended";
+
+  useEffect(() => {
+    fetchRsvpCount(contest.id).then(setGoing).catch(() => {});
+  }, [contest.id]);
+
+  async function rsvp() {
+    setBusy(true);
+    setError(null);
+    try {
+      if (await rsvpContest(contest.id)) onUnlocked();
+      else setError("Couldn't RSVP — your RSVP may have been removed by the organisers.");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "var(--bg-app)" }}>
+      <div className="card p-8 max-w-md w-full text-center">
+        <div className="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center" style={{ background: "var(--accent-soft)" }}>
+          <Lock size={20} style={{ color: "var(--accent)" }} />
+        </div>
+        <div className="text-lg font-bold mb-1" style={{ color: "var(--text-primary)" }}>{contest.title}</div>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          {ended
+            ? "This contest has ended and was open to RSVPs only."
+            : "RSVP to take part in this contest. Only people who RSVP can open the problems and submit."}
+        </p>
+        {contest.meetupUrl && !ended && (
+          <a href={contest.meetupUrl} target="_blank" rel="noreferrer" className="btn-secondary w-full justify-center mb-3">
+            RSVP on Meetup first
+          </a>
+        )}
+        {!ended && (
+          <button className="btn-primary w-full justify-center" disabled={busy} onClick={rsvp}>
+            {busy ? "RSVPing…" : "I'm going — RSVP"}
+          </button>
+        )}
+        {going != null && going > 0 && (
+          <div className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>{going} going</div>
+        )}
+        {error && <div className="text-xs mt-3" style={{ color: "#b91c1c" }}>{error}</div>}
+        <button type="button" className="btn-ghost mt-3" onClick={onBack}>Back</button>
       </div>
     </div>
   );

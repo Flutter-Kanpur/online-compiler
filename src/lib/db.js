@@ -354,6 +354,9 @@ export async function fetchGlobalLeaderboard({ limit = 100 } = {}) {
     name: row.name,
     countryCode: row.country_code ?? null,
     solvedCount: row.solved_count,
+    firstTryCount: row.first_try_count,
+    topicCount: row.topic_count,
+    score: row.score,
     rank: row.rank,
   }));
 }

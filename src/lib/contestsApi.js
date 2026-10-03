@@ -16,6 +16,8 @@ function mapContestRow(row) {
     endsAt: row.ends_at,
     createdBy: row.created_by,
     createdAt: row.created_at,
+    meetupUrl: row.meetup_url || null,
+    requiresAccess: !!row.requires_access,
   };
 }
 
@@ -27,7 +29,7 @@ export function contestStatus(contest, now = new Date()) {
   return "live";
 }
 
-export async function createContest({ title, description, startsAt, endsAt, problemIds }, userId) {
+export async function createContest({ title, description, startsAt, endsAt, problemIds, meetupUrl, rsvpRequired }, userId) {
   const { data: contest, error } = await supabase
     .from("contests")
     .insert({
@@ -36,6 +38,8 @@ export async function createContest({ title, description, startsAt, endsAt, prob
       starts_at: startsAt,
       ends_at: endsAt,
       created_by: userId,
+      meetup_url: meetupUrl || null,
+      requires_access: !!rsvpRequired,
     })
     .select()
     .single();
@@ -93,6 +97,53 @@ export async function fetchContest(contestId) {
   return { ...mapContestRow(contestRow), problems };
 }
 
+/** Whether the signed-in user may open/submit in this contest (true for open contests, admins, and RSVP'd users). */
+export async function hasContestAccess(contestId) {
+  const { data, error } = await supabase.rpc("has_contest_access", { p_contest_id: contestId });
+  if (error) throw error;
+  return !!data;
+}
+
+/** Admin only: turn RSVP on/off for an existing contest and set its Meetup link. */
+export async function updateContestRsvpSettings(contestId, { requiresAccess, meetupUrl }) {
+  const { error } = await supabase
+    .from("contests")
+    .update({ requires_access: !!requiresAccess, meetup_url: meetupUrl || null })
+    .eq("id", contestId);
+  if (error) throw error;
+}
+
+export async function rsvpContest(contestId) {
+  const { data, error } = await supabase.rpc("rsvp_contest", { p_contest_id: contestId });
+  if (error) throw error;
+  return !!data;
+}
+
+export async function cancelRsvp(contestId) {
+  const { error } = await supabase.rpc("cancel_rsvp", { p_contest_id: contestId });
+  if (error) throw error;
+}
+
+export async function fetchRsvpCount(contestId) {
+  const { data, error } = await supabase.rpc("contest_rsvp_count", { p_contest_id: contestId });
+  if (error) throw error;
+  return data || 0;
+}
+
+/** Admin only: everyone who RSVP'd, with email. */
+export async function fetchContestRsvps(contestId) {
+  const { data, error } = await supabase.rpc("get_contest_rsvps", { p_contest_id: contestId });
+  if (error) throw error;
+  return (data || []).map((r) => ({
+    userId: r.user_id, username: r.username, name: r.name, email: r.email, createdAt: r.created_at, revoked: r.revoked,
+  }));
+}
+
+export async function setRsvpRevoked(contestId, userId, revoked) {
+  const { error } = await supabase.from("contest_rsvps").update({ revoked }).eq("contest_id", contestId).eq("user_id", userId);
+  if (error) throw error;
+}
+
 export async function deleteContest(contestId) {
   const { error } = await supabase.from("contests").delete().eq("id", contestId);
   if (error) throw error;
@@ -120,6 +171,38 @@ export async function fetchContestLeaderboard(contestId) {
     totalPenalty: Number(row.total_penalty),
     rank: row.rank,
   }));
+}
+
+/** LeetCode-style standings: one entry per participant with per-problem cells, already rank-ordered. */
+export async function fetchContestStandings(contestId) {
+  const { data, error } = await supabase.rpc("get_contest_standings", { p_contest_id: contestId });
+  if (error) throw error;
+  const byUser = new Map();
+  for (const row of data || []) {
+    let entry = byUser.get(row.user_id);
+    if (!entry) {
+      entry = {
+        userId: row.user_id,
+        username: row.username,
+        name: row.name,
+        countryCode: row.country_code,
+        rank: Number(row.rank),
+        score: row.score,
+        finishSeconds: row.finish_seconds,
+        cells: [],
+      };
+      byUser.set(row.user_id, entry);
+    }
+    entry.cells.push({
+      problemId: row.problem_id,
+      position: row.position,
+      points: row.points,
+      solved: row.solved,
+      solveSeconds: row.solve_seconds,
+      wrongCount: row.wrong_count,
+    });
+  }
+  return [...byUser.values()];
 }
 
 /** Per-problem verdict history for one user within one contest — used to mark solved/attempted tabs. */
