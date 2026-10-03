@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Zap, User, Shield, LogOut, ChevronDown, Loader2 } from "lucide-react";
 import { PROBLEMS as LOCAL_PROBLEMS } from "./problems.js";
 import { fetchProblemsSafe, DEFAULT_PAGE_SIZE } from "./api/problemsApi.js";
@@ -69,6 +69,11 @@ function MainApp() {
 
   // view: { name: 'list' | 'problem' | 'profile' | 'admin', ... }
   const [view, setView] = useState({ name: "list" });
+  // Browser history mirrors in-app navigation so the back/forward buttons move
+  // between screens instead of leaving the site. Views can hold non-cloneable
+  // data, so history entries store only an index into this in-memory stack.
+  const viewStack = useRef([{ name: "list" }]);
+  const viewIdx = useRef(0);
   const [solved, setSolved] = useState(new Set());
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -146,8 +151,26 @@ function MainApp() {
     loadProblems(1, { sheet });
   }
 
-  function go(view) {
-    setView(view);
+  useEffect(() => {
+    window.history.replaceState({ sparxIdx: 0 }, "");
+    function onPop(e) {
+      const idx = e.state?.sparxIdx;
+      if (idx == null) return;
+      viewIdx.current = idx;
+      setView(viewStack.current[idx] || { name: "list" });
+      setMenuOpen(false);
+      window.scrollTo({ top: 0 });
+    }
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  function go(next) {
+    const idx = viewIdx.current + 1;
+    viewStack.current = [...viewStack.current.slice(0, idx), next];
+    viewIdx.current = idx;
+    window.history.pushState({ sparxIdx: idx }, "");
+    setView(next);
     setMenuOpen(false);
   }
 
